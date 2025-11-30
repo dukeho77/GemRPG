@@ -63,7 +63,7 @@ export const API = {
     const prompt = `You are a master RPG Architect. Create a rich, 3-Act Campaign Structure and Backstories.
     Player Name: "${context.name}".
     Details: ${context.gender} ${context.race} ${context.class}.
-    Theme: "${context.customInstructions}".
+    Theme: "${context.customInstructions || 'dark fantasy adventure'}".
     
     Output JSON ONLY:
     {
@@ -78,7 +78,16 @@ export const API = {
 
     try {
       const text = await callGemini(prompt, true);
-      return JSON.parse(text);
+      console.log("Campaign response:", text);
+      const campaign = JSON.parse(text);
+      
+      // Validate required fields exist
+      if (!campaign.title || !campaign.act1 || !campaign.possible_endings) {
+        console.warn("Invalid campaign structure, using mock");
+        return mockAPI.generateCampaign(context);
+      }
+      
+      return campaign;
     } catch (e) {
       console.error("AI Campaign Gen Error", e);
       return mockAPI.generateCampaign(context);
@@ -108,7 +117,13 @@ export const API = {
        return mockAPI.chat(history, context); // Use mock response for limit message to ensure consistency
     }
 
-    const c = context.endgame!;
+    // Guard against missing campaign data
+    if (!context.endgame || !context.endgame.possible_endings) {
+      console.warn("Missing campaign data, falling back to mock");
+      return mockAPI.chat(history, context);
+    }
+
+    const c = context.endgame;
     const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${context.inventory.join(', ')}. Current HP: ${context.hp}.`;
 
     try {
@@ -138,8 +153,18 @@ export const API = {
       });
 
       const data = await res.json();
+      console.log("Gemini API response:", data);
+      
+      if (data.error) {
+        console.error("Gemini API error:", data.error);
+        throw new Error(data.error.message || "API error");
+      }
+      
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error("No content");
+      if (!text) {
+        console.error("No text in response:", data);
+        throw new Error("No content in response");
+      }
       
       const response = JSON.parse(text) as TurnResponse;
 

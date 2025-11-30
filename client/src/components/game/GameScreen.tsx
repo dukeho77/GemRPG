@@ -84,8 +84,8 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
         setGameOver(true);
       }
 
-    } catch (e) {
-      console.error("Turn error", e);
+    } catch (e: any) {
+      console.error("Turn error:", e?.message || e, e);
     } finally {
       setIsBusy(false);
     }
