@@ -25,7 +25,7 @@ async function checkIpRateLimit(ipAddress: string): Promise<{ allowed: boolean; 
     return { allowed: true };
   }
 
-  const lastResetDate = new Date(rateLimit.lastResetDate);
+  const lastResetDate = new Date(rateLimit.lastResetDate || new Date());
   lastResetDate.setHours(0, 0, 0, 0);
 
   // Reset if it's a new day
@@ -99,7 +99,7 @@ export async function registerRoutes(
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        const lastResetDate = rateLimit ? new Date(rateLimit.lastResetDate) : today;
+        const lastResetDate = rateLimit ? new Date(rateLimit.lastResetDate || new Date()) : today;
         lastResetDate.setHours(0, 0, 0, 0);
         
         const isNewDay = today > lastResetDate;
@@ -250,7 +250,7 @@ export async function registerRoutes(
         });
       }
 
-      const lastResetDate = new Date(rateLimit.lastResetDate);
+      const lastResetDate = new Date(rateLimit.lastResetDate || new Date());
       lastResetDate.setHours(0, 0, 0, 0);
 
       const isNewDay = today > lastResetDate;
