@@ -250,32 +250,34 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
 
       {/* INVENTORY MODAL */}
       {showInventory && (
-        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar animate-in fade-in slide-in-from-bottom-10">
-          <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
+        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl animate-in fade-in slide-in-from-bottom-10">
+          <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3 flex-none">
             <h2 className="font-fantasy text-xl text-gold">Inventory</h2>
             <button onClick={() => setShowInventory(false)} className="text-white"><X className="w-5 h-5" /></button>
           </div>
-          <ul className="space-y-3 text-sm text-gray-300">
-            {state.inventory.map((item, i) => (
-              <li key={i} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/10 text-xs">
-                <div className="w-8 h-8 bg-black/50 rounded flex items-center justify-center text-gold border border-white/5">
-                  <Backpack className="w-4 h-4" />
-                </div>
-                {item}
-              </li>
-            ))}
-          </ul>
+          <div className="flex-1 overflow-y-auto no-scrollbar">
+            <ul className="space-y-3 text-sm text-gray-300 pb-6">
+              {state.inventory.map((item, i) => (
+                <li key={i} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/10 text-xs">
+                  <div className="w-8 h-8 bg-black/50 rounded flex items-center justify-center text-gold border border-white/5">
+                    <Backpack className="w-4 h-4" />
+                  </div>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
       {/* LORE MODAL */}
       {showLore && (
-        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar animate-in fade-in slide-in-from-bottom-10">
-          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-3">
+        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl animate-in fade-in slide-in-from-bottom-10">
+          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-3 flex-none">
             <h2 className="font-fantasy text-xl text-mystic">Tales of Origin</h2>
             <button onClick={() => setShowLore(false)} className="text-white"><X className="w-5 h-5" /></button>
           </div>
-          <div className="overflow-y-auto space-y-6 max-h-[80vh] no-scrollbar">
+          <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-6">
             <div>
               <h3 className="text-xs uppercase tracking-widest text-gold mb-2 font-bold">The World</h3>
               <p className="text-sm text-gray-300 font-story leading-relaxed italic border-l-2 border-white/10 pl-3">
@@ -290,10 +292,10 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
             </div>
             
             <div className="pt-6 border-t border-gray-800 space-y-3">
-              <button onClick={() => { if(confirm('Restart?')) onReset(); }} className="w-full py-3 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
+              <button onClick={() => { if(confirm('Restart this adventure? Progress will be lost.')) onReset(); }} className="w-full py-3 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
                 <RotateCcw className="w-4 h-4" /> Restart Chapter
               </button>
-              <button onClick={() => { if(confirm('Main Menu?')) window.location.reload(); }} className="w-full py-3 rounded-lg bg-transparent border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
+              <button onClick={() => { if(confirm('Return to main menu? Progress will be lost.')) window.location.reload(); }} className="w-full py-3 rounded-lg bg-transparent border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
                 <Home className="w-4 h-4" /> Main Menu
               </button>
             </div>

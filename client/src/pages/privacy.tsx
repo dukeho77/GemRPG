@@ -6,7 +6,7 @@ export default function Privacy() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-void p-8 md:p-16 font-body text-gray-300">
+    <div className="h-screen w-full overflow-y-auto bg-void p-8 md:p-16 font-body text-gray-300">
       <div className="max-w-2xl mx-auto space-y-8">
         <button onClick={() => setLocation('/login')} className="flex items-center gap-2 text-mystic hover:text-white transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back

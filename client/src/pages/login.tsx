@@ -6,12 +6,12 @@ export default function Login() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-void flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    <div className="h-screen w-full overflow-y-auto bg-void flex flex-col items-center justify-center p-4 relative">
       {/* Background Atmosphere */}
-      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1635322966219-b75ed372eb01?q=80&w=2664')] bg-cover bg-center opacity-20"></div>
-      <div className="absolute inset-0 bg-gradient-to-t from-void via-void/80 to-transparent"></div>
+      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1635322966219-b75ed372eb01?q=80&w=2664')] bg-cover bg-center opacity-20 fixed"></div>
+      <div className="absolute inset-0 bg-gradient-to-t from-void via-void/80 to-transparent fixed"></div>
 
-      <div className="relative z-10 w-full max-w-md bg-void-light/90 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl space-y-8">
+      <div className="relative z-10 w-full max-w-md bg-void-light/90 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl space-y-8 my-auto">
         <div className="text-center space-y-2">
           <h1 className="font-fantasy text-3xl text-gold">Unlock Destiny</h1>
           <p className="text-gray-400 text-sm">Save your progress and transcend mortal limits.</p>

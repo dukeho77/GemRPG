@@ -67,11 +67,12 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
   const canStart = name.length > 0;
 
   return (
-    <div className="min-h-full flex items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1519074069444-1ba4fff66d16?q=80&w=2574')] bg-cover bg-center relative">
-      <div className="absolute inset-0 bg-black/85 backdrop-blur-sm"></div>
-      
-      <div className="relative w-full max-w-xl bg-void-light/95 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-white/10 shadow-2xl">
-        <div className="text-center mb-6">
+    <div className="h-screen w-full overflow-y-auto bg-[url('https://images.unsplash.com/photo-1519074069444-1ba4fff66d16?q=80&w=2574')] bg-cover bg-center relative">
+      <div className="min-h-full flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/85 backdrop-blur-sm fixed"></div>
+        
+        <div className="relative w-full max-w-xl bg-void-light/95 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-white/10 shadow-2xl my-auto">
+          <div className="text-center mb-6">
           <Crown className="w-10 h-10 text-gold mx-auto mb-3" />
           <h1 className="font-fantasy text-3xl text-transparent bg-clip-text bg-gradient-to-r from-gold to-yellow-600 mb-1">GemRPG</h1>
           <p className="text-gray-400 text-[10px] tracking-[0.2em] uppercase">Campaign Edition</p>
@@ -194,6 +195,7 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
