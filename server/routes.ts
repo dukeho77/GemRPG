@@ -5,6 +5,14 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertGameStateSchema } from "@shared/schema";
 import { z } from "zod";
 
+// Schema for allowed game state updates (server controls turn progression)
+const gameUpdateSchema = z.object({
+  currentStory: z.string().optional(),
+  inventory: z.array(z.any()).optional(),
+  loreEntries: z.array(z.any()).optional(),
+  isActive: z.boolean().optional(),
+});
+
 // Helper to get client IP address
 function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -167,15 +175,32 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Check turn limit
-      if (gameState.maxTurns !== -1 && gameState.turnCount >= gameState.maxTurns) {
+      // Check turn limit BEFORE incrementing
+      const newTurnCount = gameState.turnCount + 1;
+      if (gameState.maxTurns !== -1 && newTurnCount > gameState.maxTurns) {
         return res.status(403).json({ 
-          message: "Turn limit reached. Log in for unlimited turns!" 
+          message: "Turn limit reached. Log in for unlimited turns!",
+          turnsUsed: gameState.turnCount,
+          maxTurns: gameState.maxTurns
         });
       }
 
-      const updates = req.body;
-      const updatedGameState = await storage.updateGameState(id, updates);
+      // Validate and sanitize client input - only allow specific fields
+      const validationResult = gameUpdateSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid update data",
+          errors: validationResult.error.errors 
+        });
+      }
+
+      // Server controls turn progression - increment server-side
+      const safeUpdates = {
+        ...validationResult.data,
+        turnCount: newTurnCount, // Server increments, not client
+      };
+
+      const updatedGameState = await storage.updateGameState(id, safeUpdates);
       res.json(updatedGameState);
     } catch (error) {
       console.error("Error updating game:", error);
