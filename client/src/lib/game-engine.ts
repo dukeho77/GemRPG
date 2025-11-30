@@ -97,7 +97,7 @@ export const API = {
     }
   },
 
-  async chat(history: any[], context: GameState): Promise<TurnResponse> {
+  async chat(history: any[], context: GameState, userInput?: string): Promise<TurnResponse> {
     if (!API_KEY) return mockAPI.chat(history, context);
     
     const turnCount = context.turn + 1;
@@ -113,10 +113,18 @@ export const API = {
 
     try {
       // Convert history to Gemini format
-      const geminiHistory = history.map(h => ({
+      let geminiHistory = history.map(h => ({
         role: h.role === 'user' ? 'user' : 'model',
         parts: h.parts
       }));
+
+      // On first turn or if history is empty, we need at least one user message
+      if (geminiHistory.length === 0 && userInput) {
+        geminiHistory = [{ role: 'user', parts: [{ text: userInput }] }];
+      } else if (geminiHistory.length === 0) {
+        // Fallback: use Act 1 intro as the first message
+        geminiHistory = [{ role: 'user', parts: [{ text: `Begin the adventure. ${c.act1}` }] }];
+      }
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_TEXT}:generateContent?key=${API_KEY}`;
       const res = await fetch(url, {

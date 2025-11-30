@@ -63,7 +63,8 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
     }
 
     try {
-      const response = await API.chat(newHistory, state);
+      // Pass inputText as third argument for first turn handling
+      const response = await API.chat(newHistory, state, inputText);
       
       // Update State
       setState(prev => ({
