@@ -90,6 +90,9 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
                   onChange={(e) => setName(e.target.value)}
                   className="flex-1 bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-mystic outline-none" 
                   placeholder="Enter name or generate..." 
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
                 />
                 <button 
                   onClick={handleGenerateName}
