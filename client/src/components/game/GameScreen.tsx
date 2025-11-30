@@ -23,6 +23,7 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
   const [fullNarrative, setFullNarrative] = useState('');
   const [lastAction, setLastAction] = useState('');
   const [options, setOptions] = useState<string[]>([]);
+  const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [, setLocation] = useLocation();
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -80,6 +81,11 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
       setDisplayedNarrative(''); // Reset for typewriter
       setOptions(response.options);
       
+      // Update image if available
+      if (response.image_base64) {
+        setCurrentImage(`data:image/png;base64,${response.image_base64}`);
+      }
+      
       if (response.game_over) {
         setGameOver(true);
       }
@@ -98,13 +104,21 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
     setLastAction(txt);
     
     setIsRolling(true);
-    // Wait for roll animation
-    // The DiceRoller component handles the visual, we just wait here
+    // Wait for roll animation - onRollComplete will trigger the turn
+  };
+
+  const handleOptionClick = (option: string) => {
+    if (isBusy || gameOver) return;
+    setLastAction(option);
+    setIsRolling(true);
+    // Dice animation will trigger onRollComplete -> handleTurn
   };
 
   const onRollComplete = () => {
     setIsRolling(false);
-    handleTurn(lastAction);
+    if (lastAction) {
+      handleTurn(lastAction);
+    }
   };
 
   const renderMarkdown = (text: string) => {
@@ -117,7 +131,7 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
     <div className="flex-1 w-full h-full flex flex-col md:flex-row overflow-hidden relative transition-all duration-700 animate-in fade-in">
       
       {/* VISUAL CARD (Top 75% on Mobile) */}
-      <div className="flex-none w-full h-[50dvh] md:w-96 md:h-full flex flex-col bg-black relative group md:border-r md:border-white/10">
+      <div className="flex-none w-full h-[75dvh] md:w-96 md:h-full flex flex-col bg-black relative group md:border-r md:border-white/10">
         
         {/* Image Wrapper */}
         <div className="relative w-full h-full overflow-hidden bg-void-light">
@@ -125,7 +139,7 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
             <div className="animate-spin text-mystic"><Loader2 className="w-8 h-8" /></div>
           </div>
           
-          <img src={stockImage} className="w-full h-full object-cover transition-all duration-1000" alt="Scene" />
+          <img src={currentImage || stockImage} className="w-full h-full object-cover transition-all duration-1000" alt="Scene" />
           
           {/* Shadows */}
           <div className="absolute inset-0 shadow-card-overlay pointer-events-none z-10"></div>
@@ -167,8 +181,9 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
               {options.map((opt, idx) => (
                 <button 
                   key={idx} 
-                  onClick={() => { setInput(opt); handleInputSubmit(); }}
-                  className="text-left text-xs py-2 px-3 bg-black/60 backdrop-blur-md border border-white/10 rounded hover:bg-mystic/20 hover:border-mystic/50 transition-colors text-gray-300 truncate"
+                  onClick={() => handleOptionClick(opt)}
+                  disabled={isBusy || gameOver}
+                  className="text-left text-xs py-2 px-3 bg-black/60 backdrop-blur-md border border-white/10 rounded hover:bg-mystic/20 hover:border-mystic/50 transition-colors text-gray-300 truncate disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {opt}
                 </button>

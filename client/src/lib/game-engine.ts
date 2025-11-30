@@ -168,11 +168,16 @@ export const API = {
       
       const response = JSON.parse(text) as TurnResponse;
 
-      // Try to generate image if visual prompt exists
+      // Generate image if visual prompt exists
       if (response.visual_prompt) {
-        // Note: Image generation might be slow, maybe we skip it for speed or do it async?
-        // For now, let's try to fetch it if possible, or just return null
-        // response.image_base64 = await generateImage(response.visual_prompt);
+        try {
+          const imageBase64 = await generateImage(response.visual_prompt);
+          if (imageBase64) {
+            response.image_base64 = imageBase64;
+          }
+        } catch (imgErr) {
+          console.warn("Image generation failed, continuing without image:", imgErr);
+        }
       }
 
       return response;
@@ -204,10 +209,38 @@ async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-// Helper for Image (Placeholder for now as Imagen API varies)
+// Helper for Image generation using Imagen API
 async function generateImage(prompt: string): Promise<string | undefined> {
-    // Implementation depends on specific Imagen endpoint access
+  if (!API_KEY) return undefined;
+  
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${API_KEY}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instances: [{ prompt: `Dark fantasy RPG scene: ${prompt}` }],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio: "3:4",
+          safetyFilterLevel: "block_few",
+          personGeneration: "allow_adult"
+        }
+      })
+    });
+    
+    const data = await res.json();
+    console.log("Imagen response:", data);
+    
+    if (data.predictions && data.predictions[0]?.bytesBase64Encoded) {
+      return data.predictions[0].bytesBase64Encoded;
+    }
+    
     return undefined;
+  } catch (e) {
+    console.error("Image generation error:", e);
+    return undefined;
+  }
 }
 
 // MOCK FALLBACK (The original code)
