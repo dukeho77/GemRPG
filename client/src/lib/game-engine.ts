@@ -34,31 +34,55 @@ export interface TurnResponse {
   inventory: string[];
   options: string[];
   game_over: boolean;
-  image_base64?: string; // Added for dynamic images
+  image_base64?: string;
 }
 
 // Configuration
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-const MODEL_TEXT = "gemini-2.0-flash"; // Using a stable model
-const MODEL_IMAGE = "imagen-3.0-generate-001"; 
+const MODEL_TEXT = "gemini-2.0-flash";
+
+// Logging helper
+function logAI(type: string, startTime: number, success: boolean, details?: string) {
+  const elapsed = Date.now() - startTime;
+  const status = success ? "✅ SUCCESS" : "❌ FAIL";
+  const color = success ? "color: #22c55e" : "color: #ef4444";
+  console.log(
+    `%c[AI: ${type}] ${status} (${elapsed}ms)${details ? ` - ${details}` : ""}`,
+    `font-weight: bold; ${color}`
+  );
+}
 
 export const API = {
   async generateName(context: { gender: string, race: string, class: string }): Promise<string> {
-    if (!API_KEY) return mockAPI.generateName(context);
+    const startTime = Date.now();
+    const type = "Name Generator";
+    
+    if (!API_KEY) {
+      logAI(type, startTime, true, "Using MOCK (no API key)");
+      return mockAPI.generateName(context);
+    }
 
     const prompt = `Generate a SINGLE creative fantasy name for a ${context.gender} ${context.race} ${context.class}. Output ONLY the name (e.g., "Thorgar"). No text like "Here is a name:".`;
     
     try {
-      const text = await callGemini(prompt);
-      return text.replace(/["']/g, "").trim() || "Adventurer";
+      const text = await callGemini(prompt, false, type);
+      const name = text.replace(/["']/g, "").trim() || "Adventurer";
+      logAI(type, startTime, true, `Generated: "${name}"`);
+      return name;
     } catch (e) {
-      console.error("AI Name Gen Error", e);
+      logAI(type, startTime, false, String(e));
       return "Hero";
     }
   },
 
   async generateCampaign(context: any): Promise<CampaignData> {
-    if (!API_KEY) return mockAPI.generateCampaign(context);
+    const startTime = Date.now();
+    const type = "Campaign Architect";
+    
+    if (!API_KEY) {
+      logAI(type, startTime, true, "Using MOCK (no API key)");
+      return mockAPI.generateCampaign(context);
+    }
 
     const prompt = `You are a master RPG Architect. Create a rich, 3-Act Campaign Structure and Backstories.
     Player Name: "${context.name}".
@@ -77,49 +101,67 @@ export const API = {
     }`;
 
     try {
-      const text = await callGemini(prompt, true);
-      console.log("Campaign response:", text);
-      const campaign = JSON.parse(text);
+      const text = await callGemini(prompt, true, type);
+      let campaign = JSON.parse(text);
       
-      // Validate required fields exist
-      if (!campaign.title || !campaign.act1 || !campaign.possible_endings) {
-        console.warn("Invalid campaign structure, using mock");
+      // Handle array response (sometimes API returns [{...}] instead of {...})
+      if (Array.isArray(campaign)) {
+        campaign = campaign[0];
+      }
+      
+      if (!campaign || !campaign.title || !campaign.act1 || !campaign.possible_endings) {
+        logAI(type, startTime, false, "Invalid campaign structure");
         return mockAPI.generateCampaign(context);
       }
       
+      logAI(type, startTime, true, `Campaign: "${campaign.title}"`);
       return campaign;
     } catch (e) {
-      console.error("AI Campaign Gen Error", e);
+      logAI(type, startTime, false, String(e));
       return mockAPI.generateCampaign(context);
     }
   },
 
   async generateVisuals(context: any): Promise<string> {
-    if (!API_KEY) return mockAPI.generateVisuals(context);
+    const startTime = Date.now();
+    const type = "Visual Designer";
+    
+    if (!API_KEY) {
+      logAI(type, startTime, true, "Using MOCK (no API key)");
+      return mockAPI.generateVisuals(context);
+    }
 
     const prompt = `Generate a concise (max 25 words) visual description for a dark fantasy RPG character. Role: ${context.gender} ${context.race} ${context.class}. Requirements: Describe physique, hair, eyes, and clothing/armor. Output: Just the description text.`;
     
     try {
-      return await callGemini(prompt);
+      const result = await callGemini(prompt, false, type);
+      logAI(type, startTime, true, `Description length: ${result.length} chars`);
+      return result;
     } catch (e) {
+      logAI(type, startTime, false, String(e));
       return `${context.gender} ${context.race} ${context.class}`;
     }
   },
 
   async chat(history: any[], context: GameState, userInput?: string): Promise<TurnResponse> {
-    if (!API_KEY) return mockAPI.chat(history, context);
+    const startTime = Date.now();
+    const type = "Dungeon Master";
+    
+    if (!API_KEY) {
+      logAI(type, startTime, true, "Using MOCK (no API key)");
+      return mockAPI.chat(history, context);
+    }
     
     const turnCount = context.turn + 1;
     const isLimit = turnCount >= context.maxTurns;
 
-    // Force end if limit reached
     if (isLimit) {
-       return mockAPI.chat(history, context); // Use mock response for limit message to ensure consistency
+      logAI(type, startTime, true, "Turn limit reached - using limit message");
+      return mockAPI.chat(history, context);
     }
 
-    // Guard against missing campaign data
     if (!context.endgame || !context.endgame.possible_endings) {
-      console.warn("Missing campaign data, falling back to mock");
+      logAI(type, startTime, false, "Missing campaign data");
       return mockAPI.chat(history, context);
     }
 
@@ -127,17 +169,14 @@ export const API = {
     const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${context.inventory.join(', ')}. Current HP: ${context.hp}.`;
 
     try {
-      // Convert history to Gemini format
       let geminiHistory = history.map(h => ({
         role: h.role === 'user' ? 'user' : 'model',
         parts: h.parts
       }));
 
-      // On first turn or if history is empty, we need at least one user message
       if (geminiHistory.length === 0 && userInput) {
         geminiHistory = [{ role: 'user', parts: [{ text: userInput }] }];
       } else if (geminiHistory.length === 0) {
-        // Fallback: use Act 1 intro as the first message
         geminiHistory = [{ role: 'user', parts: [{ text: `Begin the adventure. ${c.act1}` }] }];
       }
 
@@ -153,44 +192,39 @@ export const API = {
       });
 
       const data = await res.json();
-      console.log("Gemini API response:", data);
       
       if (data.error) {
-        console.error("Gemini API error:", data.error);
+        logAI(type, startTime, false, data.error.message);
         throw new Error(data.error.message || "API error");
       }
       
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) {
-        console.error("No text in response:", data);
+        logAI(type, startTime, false, "No content in response");
         throw new Error("No content in response");
       }
       
       const response = JSON.parse(text) as TurnResponse;
+      logAI(type, startTime, true, `Turn ${turnCount}, HP: ${response.hp_current}, Options: ${response.options?.length || 0}`);
 
-      // Generate image if visual prompt exists
       if (response.visual_prompt) {
-        try {
-          const imageBase64 = await generateImage(response.visual_prompt);
-          if (imageBase64) {
-            response.image_base64 = imageBase64;
-          }
-        } catch (imgErr) {
-          console.warn("Image generation failed, continuing without image:", imgErr);
+        const imageBase64 = await generateImage(response.visual_prompt);
+        if (imageBase64) {
+          response.image_base64 = imageBase64;
         }
       }
 
       return response;
 
     } catch (e) {
-      console.error("AI Chat Error", e);
+      logAI(type, startTime, false, String(e));
       return mockAPI.chat(history, context);
     }
   }
 };
 
 // Helper for Gemini Text
-async function callGemini(prompt: string, jsonMode = false): Promise<string> {
+async function callGemini(prompt: string, jsonMode = false, callerType?: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_TEXT}:generateContent?key=${API_KEY}`;
   const body: any = {
     contents: [{ parts: [{ text: prompt }] }]
@@ -206,15 +240,25 @@ async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   });
   
   const data = await res.json();
+  
+  if (data.error) {
+    throw new Error(data.error.message || "Gemini API error");
+  }
+  
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
 // Helper for Image generation using Imagen API (matching original prototype)
 async function generateImage(prompt: string): Promise<string | undefined> {
-  if (!API_KEY) return undefined;
+  const startTime = Date.now();
+  const type = "Image Generator (Imagen 4.0)";
+  
+  if (!API_KEY) {
+    logAI(type, startTime, false, "No API key");
+    return undefined;
+  }
   
   try {
-    // Use Imagen 4.0 with predict endpoint (exact format from original prototype)
     const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${API_KEY}`;
     const finalPrompt = `${prompt}, cinematic lighting, 8k, masterpiece, detailed, ${Date.now()}`;
     
@@ -228,23 +272,27 @@ async function generateImage(prompt: string): Promise<string | undefined> {
     });
     
     const data = await res.json();
-    console.log("Imagen response:", data);
     
-    // Handle error responses
     if (data.error) {
-      console.error("Imagen API error:", data.error);
+      logAI(type, startTime, false, data.error.message || "API error");
       return undefined;
     }
     
-    // Response format from predict endpoint (matches original)
-    return data.predictions?.[0]?.bytesBase64Encoded;
+    const imageData = data.predictions?.[0]?.bytesBase64Encoded;
+    if (imageData) {
+      logAI(type, startTime, true, `Image size: ${Math.round(imageData.length / 1024)}KB`);
+      return imageData;
+    } else {
+      logAI(type, startTime, false, "No image data in response");
+      return undefined;
+    }
   } catch (e) {
-    console.error("Image generation error:", e);
+    logAI(type, startTime, false, String(e));
     return undefined;
   }
 }
 
-// MOCK FALLBACK (The original code)
+// MOCK FALLBACK
 const MOCK_DELAY = 1000;
 const mockAPI = {
   async generateName(context: any): Promise<string> {

@@ -67,14 +67,17 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
       // Pass inputText as third argument for first turn handling
       const response = await API.chat(newHistory, state, inputText);
       
-      // Update State
+      // Update State - IMPORTANT: Don't store image_base64 in history to avoid token overflow
+      const historyResponse = { ...response };
+      delete historyResponse.image_base64; // Remove image data from history
+      
       setState(prev => ({
         ...prev,
         hp: response.hp_current,
         gold: response.gold,
         inventory: response.inventory,
         turn: prev.turn + 1,
-        history: [...newHistory, { role: 'model', parts: [{ text: JSON.stringify(response) }] }] // Mock history storage
+        history: [...newHistory, { role: 'model', parts: [{ text: JSON.stringify(historyResponse) }] }]
       }));
 
       setFullNarrative(response.narrative);
