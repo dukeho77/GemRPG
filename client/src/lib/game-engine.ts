@@ -214,31 +214,35 @@ async function generateImage(prompt: string): Promise<string | undefined> {
   if (!API_KEY) return undefined;
   
   try {
-    // Use Gemini API endpoint for Imagen
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${API_KEY}`;
+    // Use Imagen 3 with predict endpoint (per Google's REST API docs)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${API_KEY}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: `Dark fantasy RPG scene, highly detailed digital art: ${prompt}`,
-        numberOfImages: 1,
-        aspectRatio: "3:4",
-        safetyFilterLevel: "BLOCK_LOW_AND_ABOVE",
-        personGeneration: "ALLOW_ADULT"
+        instances: [
+          { prompt: `Dark fantasy RPG scene, highly detailed digital painting: ${prompt}` }
+        ],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio: "3:4",
+          personGeneration: "allow_adult"
+        }
       })
     });
     
     const data = await res.json();
     console.log("Imagen response:", data);
     
-    // Handle the response format from generateImages endpoint
-    if (data.generatedImages && data.generatedImages[0]?.image?.imageBytes) {
-      return data.generatedImages[0].image.imageBytes;
+    // Handle error responses
+    if (data.error) {
+      console.error("Imagen API error:", data.error);
+      return undefined;
     }
     
-    // Alternative response format
-    if (data.images && data.images[0]?.bytesBase64Encoded) {
-      return data.images[0].bytesBase64Encoded;
+    // Response format from predict endpoint
+    if (data.predictions && data.predictions[0]?.bytesBase64Encoded) {
+      return data.predictions[0].bytesBase64Encoded;
     }
     
     return undefined;

@@ -86,13 +86,19 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
               <div className="flex gap-2">
                 <input 
                   type="text" 
+                  name="hero-name-field"
+                  id="hero-name-field"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="flex-1 bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-mystic outline-none" 
                   placeholder="Enter name or generate..." 
-                  autoComplete="off"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
                   data-lpignore="true"
                   data-form-type="other"
+                  data-1p-ignore="true"
                 />
                 <button 
                   onClick={handleGenerateName}
