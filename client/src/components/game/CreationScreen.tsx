@@ -9,7 +9,7 @@ interface CreationScreenProps {
 }
 
 export function CreationScreen({ onGameStart }: CreationScreenProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState('Adam Kingsborn');
   const [gender, setGender] = useState<'Male' | 'Female'>('Male');
   const [selectedClass, setSelectedClass] = useState<ClassName>('Warrior');
   const [selectedRace, setSelectedRace] = useState<RaceName>('Human');
