@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Crown, Sparkles, ArrowRight, Loader2, AlertCircle, LogIn } from 'lucide-react';
+import { Crown, Sparkles, ArrowRight, Loader2, AlertCircle, LogIn, LogOut, BookOpen, X, Play, Trash2 } from 'lucide-react';
 import { CLASSES, RACES, RPG_KEYWORDS, ClassName, RaceName } from '@/lib/game-constants';
-import { API, GameState } from '@/lib/game-engine';
+import { API, GameState, Adventure, AdventureAPI } from '@/lib/game-engine';
 import { useLocation } from 'wouter';
 
 interface RateLimitStatus {
@@ -31,6 +31,12 @@ export function CreationScreen({ onGameStart, isAuthenticated = false }: Creatio
   // Rate limit state
   const [rateLimit, setRateLimit] = useState<RateLimitStatus | null>(null);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
+  
+  // Adventure list state
+  const [showAdventures, setShowAdventures] = useState(false);
+  const [adventures, setAdventures] = useState<Adventure[]>([]);
+  const [adventuresLoading, setAdventuresLoading] = useState(false);
+  const [loadingAdventureId, setLoadingAdventureId] = useState<string | null>(null);
 
   // Fetch rate limit status on mount
   useEffect(() => {
@@ -39,6 +45,49 @@ export function CreationScreen({ onGameStart, isAuthenticated = false }: Creatio
       .then(data => setRateLimit(data))
       .catch(err => console.error('Failed to fetch rate limit:', err));
   }, []);
+
+  // Fetch adventures when modal opens
+  const handleShowAdventures = async () => {
+    setShowAdventures(true);
+    setAdventuresLoading(true);
+    try {
+      const { adventures: list } = await AdventureAPI.listAdventures();
+      setAdventures(list);
+    } catch (err) {
+      console.error('Failed to fetch adventures:', err);
+    } finally {
+      setAdventuresLoading(false);
+    }
+  };
+
+  // Load selected adventure
+  const handleLoadAdventure = async (adventure: Adventure) => {
+    setLoadingAdventureId(adventure.id);
+    try {
+      const { adventure: fullAdventure, turns } = await AdventureAPI.resumeAdventure(adventure.id);
+      if (fullAdventure) {
+        const state = AdventureAPI.adventureToGameState(fullAdventure, turns);
+        setShowAdventures(false);
+        onGameStart(state);
+      }
+    } catch (err) {
+      console.error('Failed to load adventure:', err);
+    } finally {
+      setLoadingAdventureId(null);
+    }
+  };
+
+  // Delete adventure
+  const handleDeleteAdventure = async (adventureId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this adventure? This cannot be undone.')) return;
+    try {
+      await AdventureAPI.deleteAdventure(adventureId);
+      setAdventures(prev => prev.filter(a => a.id !== adventureId));
+    } catch (err) {
+      console.error('Failed to delete adventure:', err);
+    }
+  };
 
   const handleGenerateName = async () => {
     setIsGeneratingName(true);
@@ -138,14 +187,33 @@ export function CreationScreen({ onGameStart, isAuthenticated = false }: Creatio
       <div className="min-h-full flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/85 backdrop-blur-sm fixed"></div>
         
-        {/* Sign In Button - Top Right */}
-        {!isAuthenticated && (
+        {/* My Adventures Button - Top Left (only for authenticated) */}
+        {isAuthenticated && (
+          <button
+            onClick={handleShowAdventures}
+            className="fixed top-6 left-6 z-50 p-3 bg-void-light/80 backdrop-blur-md border border-mystic/30 rounded-full text-mystic hover:text-white hover:border-mystic hover:bg-mystic/20 transition-all duration-300 shadow-lg"
+            title="My Adventures"
+          >
+            <BookOpen className="w-5 h-5" />
+          </button>
+        )}
+        
+        {/* Sign In / Sign Out Button - Top Right */}
+        {!isAuthenticated ? (
           <button
             onClick={() => setLocation('/login')}
             className="fixed top-6 right-6 z-50 p-3 bg-void-light/80 backdrop-blur-md border border-gold/30 rounded-full text-gold hover:text-white hover:border-gold hover:bg-gold/20 transition-all duration-300 shadow-lg"
             title="Sign In"
           >
             <LogIn className="w-5 h-5" />
+          </button>
+        ) : (
+          <button
+            onClick={() => { window.location.href = '/api/logout'; }}
+            className="fixed top-6 right-6 z-50 p-3 bg-void-light/80 backdrop-blur-md border border-red-500/30 rounded-full text-red-400 hover:text-white hover:border-red-500 hover:bg-red-500/20 transition-all duration-300 shadow-lg"
+            title="Sign Out"
+          >
+            <LogOut className="w-5 h-5" />
           </button>
         )}
         
@@ -320,6 +388,101 @@ export function CreationScreen({ onGameStart, isAuthenticated = false }: Creatio
         </div>
       </div>
     </div>
+    
+      {/* Adventures List Modal */}
+      {showAdventures && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg bg-void-light/95 border border-white/10 rounded-2xl shadow-2xl max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-center p-4 border-b border-white/10">
+              <h2 className="font-fantasy text-xl text-mystic flex items-center gap-2">
+                <BookOpen className="w-5 h-5" /> My Adventures
+              </h2>
+              <button 
+                onClick={() => setShowAdventures(false)} 
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {adventuresLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-mystic animate-spin" />
+                </div>
+              ) : adventures.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 text-sm">
+                  No adventures yet. Start your first one!
+                </div>
+              ) : (
+                adventures.map(adventure => (
+                  <div
+                    key={adventure.id}
+                    onClick={() => handleLoadAdventure(adventure)}
+                    className={`p-4 bg-black/30 border rounded-lg cursor-pointer transition-all hover:border-mystic/50 hover:bg-mystic/5 ${
+                      adventure.status === 'active' ? 'border-mystic/30' : 'border-white/10'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-white truncate">{adventure.characterName}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${
+                            adventure.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                            adventure.status === 'completed' ? 'bg-gold/20 text-gold' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {adventure.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 truncate">
+                          {adventure.characterRace} {adventure.characterClass} • Turn {adventure.turnCount}
+                        </p>
+                        {adventure.campaignTitle && (
+                          <p className="text-xs text-mystic/70 truncate mt-1 italic">
+                            {adventure.campaignTitle}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          {new Date(adventure.lastPlayedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {loadingAdventureId === adventure.id ? (
+                          <Loader2 className="w-4 h-4 text-mystic animate-spin" />
+                        ) : (
+                          <>
+                            <button
+                              onClick={(e) => handleDeleteAdventure(adventure.id, e)}
+                              className="p-1.5 text-gray-500 hover:text-red-400 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <Play className="w-4 h-4 text-mystic" />
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-4 border-t border-white/10">
+              <button
+                onClick={() => setShowAdventures(false)}
+                className="w-full py-2.5 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 text-sm font-bold transition-all"
+              >
+                Start New Adventure
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

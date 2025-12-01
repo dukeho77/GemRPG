@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { marked } from 'marked';
 import { ArrowRightCircle, Skull, RefreshCw, Home, X, RotateCcw, Loader2, AlertTriangle, Crown, LogIn, LogOut } from 'lucide-react';
-import { GameState, API, AdventureAPI } from '@/lib/game-engine';
+import { GameState, API, AdventureAPI, EpilogueResponse } from '@/lib/game-engine';
 import { DiceRoller } from './DiceRoller';
 import { GameHeader } from './GameHeader';
 import stockImage from '@assets/stock_images/dark_fantasy_rpg_atm_0f6db108.jpg';
@@ -33,10 +33,14 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
   const [showLore, setShowLore] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [showGameOverModal, setShowGameOverModal] = useState(false);
+  const [epilogue, setEpilogue] = useState<EpilogueResponse | null>(null);
+  const [epilogueLoading, setEpilogueLoading] = useState(false);
   const [narrative, setNarrative] = useState('<p class="italic text-gray-600">The world is forming...</p>');
   const [lastAction, setLastAction] = useState('');
   const [options, setOptions] = useState<string[]>([]);
-  const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [currentImage, setCurrentImage] = useState<string | null>(
+    initialState.lastImage || null // URL endpoint or null
+  );
   const [imageLoading, setImageLoading] = useState(false);
   const [fadeKey, setFadeKey] = useState(0); // For triggering fade animation
   const [journeyComplete, setJourneyComplete] = useState(false); // Reached max turns but not dead
@@ -142,43 +146,41 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
       setNarrative(marked.parse(response.narrative) as string);
       setOptions(response.options || []);
 
-      // Save turn to server for authenticated users
-      if (isAuthenticated && state.id) {
-        try {
-          await AdventureAPI.saveTurn(state.id, {
-            playerAction: inputText,
-            narrative: response.narrative,
-            visualPrompt: response.visual_prompt,
-            hpAfter: response.hp_current,
-            goldAfter: response.gold,
-            inventoryAfter: response.inventory,
-            options: response.options || [],
-          });
-        } catch (error) {
-          console.error('Failed to save turn to server:', error);
-          // Continue playing even if save fails
-        }
-      }
-
       // Check for actual death vs journey complete (reached max turns)
       if (response.game_over) {
         setGameOver(true);
-        // Update adventure status on server
-        if (isAuthenticated && state.id) {
-          AdventureAPI.updateAdventure(state.id, {
-            status: 'completed',
-            endingType: response.hp_current <= 0 ? 'death' : 'victory',
-          }).catch(console.error);
-        }
       } else if (state.maxTurns > 0 && newTurn >= state.maxTurns) {
         // Reached max turns but not dead - offer to continue (only for anonymous)
         setJourneyComplete(true);
       }
 
-      // Generate image ASYNC (non-blocking) - exactly like original
+      // Save turn to server ASYNC (fire-and-forget, don't block UI)
+      if (isAuthenticated && state.id) {
+        // Save turn in background
+        AdventureAPI.saveTurn(state.id, {
+          playerAction: inputText,
+          narrative: response.narrative,
+          visualPrompt: response.visual_prompt,
+          hpAfter: response.hp_current,
+          goldAfter: response.gold,
+          inventoryAfter: response.inventory,
+          options: response.options || [],
+        }).catch(err => console.error('Failed to save turn:', err));
+
+        // Update status if game over (also fire-and-forget)
+        if (response.game_over) {
+          AdventureAPI.updateAdventure(state.id, {
+            status: 'completed',
+            endingType: response.hp_current <= 0 ? 'death' : 'victory',
+          }).catch(err => console.error('Failed to update adventure status:', err));
+        }
+      }
+
+      // Generate image ASYNC (non-blocking) - server saves to adventure if ID provided
       if (response.visual_prompt) {
         setPendingImage(true); // Mark that we're waiting for a generated image
-        API.generateImage(response.visual_prompt).then(b64 => {
+        // Pass adventureId so server can save image directly (no round-trip needed)
+        API.generateImage(response.visual_prompt, state.id).then(b64 => {
           if (b64) {
             const newSrc = `data:image/jpeg;base64,${b64}`;
             // Set the new image source - the onLoad handler will clear loading state
@@ -281,6 +283,7 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
         setGameOver(false);
         setJourneyComplete(false);
         setShowGameOverModal(false);
+        setEpilogue(null);
         setNarrative('<p class="italic text-gray-600">The world reforms...</p>');
         setOptions([]);
         setLastAction('');
@@ -295,12 +298,22 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
     setConfirmation({
       isOpen: true,
       title: 'Return to Main Menu?',
-      message: 'Are you sure you want to leave? All progress will be lost.',
+      message: 'Are you sure you want to leave? Your adventure will be abandoned.',
       confirmText: 'Exit to Menu',
       cancelText: 'Stay',
       type: 'main-menu',
-      onConfirm: () => {
+      onConfirm: async () => {
         setConfirmation(prev => ({ ...prev, isOpen: false }));
+        
+        // Abandon the adventure in the database so user can start a new one
+        if (isAuthenticated && state.id && !gameOver) {
+          try {
+            await AdventureAPI.updateAdventure(state.id, { status: 'abandoned' });
+          } catch (error) {
+            console.error('Failed to abandon adventure:', error);
+          }
+        }
+        
         onReset();
       }
     });
@@ -355,7 +368,15 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
             <div className="flex flex-col gap-2 w-full pb-1">
               {gameOver ? (
                 <button
-                  onClick={() => setShowGameOverModal(true)}
+                  onClick={async () => {
+                    setShowGameOverModal(true);
+                    if (!epilogue && !epilogueLoading) {
+                      setEpilogueLoading(true);
+                      const result = await API.generateEpilogue(state.history, state);
+                      setEpilogue(result);
+                      setEpilogueLoading(false);
+                    }
+                  }}
                   className="w-full py-4 rounded-xl bg-blood border border-red-500 text-sm text-white font-bold tracking-widest shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse"
                 >
                   ACCEPT FATE
@@ -468,11 +489,34 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
               </div>
             </div>
           ) : (
-            /* Death - Game Over */
-            <div className="text-center p-8 w-full max-w-sm bg-void-light/90 border border-blood/30 rounded-2xl shadow-2xl shadow-blood/10">
-              <Skull className="w-16 h-16 text-blood mx-auto mb-4 animate-pulse" />
-              <h2 className="font-fantasy text-4xl text-white mb-2 tracking-widest">FATE SEALED</h2>
-              <p className="text-gray-400 text-xs mb-8 italic">Your legend ends here...</p>
+            /* Death / Victory - Game Over with Epilogue */
+            <div className="text-center p-6 md:p-8 w-full max-w-md bg-void-light/90 border border-blood/30 rounded-2xl shadow-2xl shadow-blood/10 max-h-[90vh] overflow-y-auto no-scrollbar">
+              <Skull className="w-12 h-12 md:w-16 md:h-16 text-blood mx-auto mb-3 md:mb-4 animate-pulse" />
+              <h2 className="font-fantasy text-3xl md:text-4xl text-white mb-2 tracking-widest">FATE SEALED</h2>
+              
+              {epilogueLoading ? (
+                <div className="py-8">
+                  <Loader2 className="w-8 h-8 text-blood mx-auto animate-spin mb-3" />
+                  <p className="text-gray-400 text-xs italic">The chroniclers inscribe your final chapter...</p>
+                </div>
+              ) : epilogue ? (
+                <div className="text-left mb-6 space-y-4">
+                  <h3 className="font-fantasy text-lg md:text-xl text-gold text-center italic">
+                    "{epilogue.epilogue_title}"
+                  </h3>
+                  <div className="text-gray-300 text-xs md:text-sm leading-relaxed font-story space-y-3 border-l-2 border-blood/30 pl-3 md:pl-4">
+                    {epilogue.epilogue_text.split('\n\n').map((paragraph, idx) => (
+                      <p key={idx}>{paragraph}</p>
+                    ))}
+                  </div>
+                  <p className="text-center text-gold/80 text-xs md:text-sm italic pt-2 border-t border-white/10">
+                    "{epilogue.legacy}"
+                  </p>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs mb-8 italic">Your legend ends here...</p>
+              )}
+              
               <div className="space-y-3">
                 <button
                   onClick={requestRestart}
@@ -492,23 +536,50 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
         </div>
       )}
 
-      {/* INVENTORY MODAL */}
+      {/* CHARACTER SHEET MODAL */}
       {showInventory && (
-        <div className="absolute inset-0 z-40 bg-black/95 p-6 md:p-10 flex flex-col backdrop-blur-xl no-scrollbar">
-          <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
-            <h2 className="font-fantasy text-xl md:text-3xl text-gold">Inventory</h2>
+        <div className="absolute inset-0 z-40 bg-black/95 p-6 md:p-10 flex flex-col backdrop-blur-xl no-scrollbar overflow-y-auto">
+          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-3">
+            <h2 className="font-fantasy text-xl md:text-3xl text-gold">Character</h2>
             <button onClick={() => setShowInventory(false)} className="text-white"><X className="w-5 h-5 md:w-6 md:h-6" /></button>
           </div>
-          <ul className="space-y-3 md:space-y-4 text-sm text-gray-300">
-            {state.inventory.length > 0 ? state.inventory.map((item, idx) => (
-              <li key={idx} className="flex items-center gap-3 bg-white/5 p-2 md:p-3 rounded-lg border border-white/10 text-xs md:text-base">
-                <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-gold rounded-full shadow-[0_0_5px_rgba(251,191,36,0.5)]"></div>
-                <span className="text-gray-300">{item}</span>
-              </li>
-            )) : (
-              <li className="italic text-gray-600 text-xs md:text-base">Empty...</li>
-            )}
-          </ul>
+          
+          <div className="space-y-6 md:space-y-8 max-h-[80vh] overflow-y-auto no-scrollbar">
+            {/* Character Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h3 className="text-[10px] md:text-xs uppercase tracking-widest text-gray-500 mb-1 font-bold">Name</h3>
+                <p className="text-sm md:text-lg text-white font-bold">{state.name}</p>
+              </div>
+              <div>
+                <h3 className="text-[10px] md:text-xs uppercase tracking-widest text-gray-500 mb-1 font-bold">Gender</h3>
+                <p className="text-sm md:text-lg text-white">{state.gender}</p>
+              </div>
+              <div>
+                <h3 className="text-[10px] md:text-xs uppercase tracking-widest text-gray-500 mb-1 font-bold">Class</h3>
+                <p className="text-sm md:text-lg text-mystic font-bold">{state.class}</p>
+              </div>
+              <div>
+                <h3 className="text-[10px] md:text-xs uppercase tracking-widest text-gray-500 mb-1 font-bold">Race</h3>
+                <p className="text-sm md:text-lg text-mystic">{state.race}</p>
+              </div>
+            </div>
+            
+            {/* Inventory */}
+            <div>
+              <h3 className="text-xs md:text-sm uppercase tracking-widest text-gold mb-3 font-bold">Inventory</h3>
+              <ul className="space-y-2 md:space-y-3">
+                {state.inventory.length > 0 ? state.inventory.map((item, idx) => (
+                  <li key={idx} className="flex items-center gap-3 bg-white/5 p-2 md:p-3 rounded-lg border border-white/10 text-xs md:text-base">
+                    <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-gold rounded-full shadow-[0_0_5px_rgba(251,191,36,0.5)]"></div>
+                    <span className="text-gray-300">{item}</span>
+                  </li>
+                )) : (
+                  <li className="italic text-gray-600 text-xs md:text-base">Empty...</li>
+                )}
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 

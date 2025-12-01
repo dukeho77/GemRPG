@@ -81,6 +81,9 @@ export const adventures = pgTable("adventures", {
   status: text("status").notNull().default('active'), // 'active' | 'completed' | 'abandoned'
   endingType: text("ending_type"), // 'victory' | 'death' | 'limit_reached' | null
   
+  // Last scene image (base64)
+  lastImage: text("last_image"), // Store the last generated image for resume
+  
   // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

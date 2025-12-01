@@ -45,15 +45,21 @@ export default function Play() {
 
   const handleGameStart = async (state: GameState) => {
     // If user is authenticated, create adventure on server
+    console.log('[DEBUG] handleGameStart - isAuthenticated:', isAuthenticated);
     if (isAuthenticated) {
       try {
+        console.log('[DEBUG] Creating adventure on server...');
         const adventure = await AdventureAPI.createAdventure(state);
         state.id = adventure.id;
+        console.log('[DEBUG] Adventure created with ID:', adventure.id);
       } catch (error) {
         console.error('Error creating adventure:', error);
         // Continue without persistence - ephemeral session
       }
+    } else {
+      console.log('[DEBUG] Not authenticated, skipping adventure creation');
     }
+    console.log('[DEBUG] Final state.id:', state.id);
     setGameState(state);
   };
 

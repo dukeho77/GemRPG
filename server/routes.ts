@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
 import { insertAdventureSchema, insertAdventureTurnSchema } from "@shared/schema";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { GoogleGenAI } from "@google/genai";
 
 // Schema for adventure updates
@@ -13,6 +14,7 @@ const adventureUpdateSchema = z.object({
   inventory: z.array(z.string()).optional(),
   status: z.enum(['active', 'completed', 'abandoned']).optional(),
   endingType: z.enum(['victory', 'death', 'limit_reached']).optional(),
+  lastImage: z.string().optional(),
 });
 
 // Schema for creating a new turn
@@ -24,6 +26,37 @@ const createTurnSchema = z.object({
   goldAfter: z.number(),
   inventoryAfter: z.array(z.string()),
   options: z.array(z.string()),
+});
+
+// Schema for AI campaign generation response (structured output)
+const campaignResponseSchema = z.object({
+  title: z.string().describe("Campaign title"),
+  act1: z.string().describe("The Setup & Inciting Incident (1 sentence)"),
+  act2: z.string().describe("The Twist & Rising Action (1 sentence)"),
+  act3: z.string().describe("The Climax & Final Boss (1 sentence)"),
+  possible_endings: z.array(z.string()).describe("3 possible endings"),
+  world_backstory: z.string().describe("World description (3-4 sentences)"),
+  character_backstory: z.string().describe("Character's past and motivation (3-4 sentences)"),
+});
+
+// Schema for AI chat/turn generation response (structured output)
+const chatResponseSchema = z.object({
+  narrative: z.string().describe("Story text in 2nd person, 4-6 sentences with Markdown"),
+  visual_prompt: z.string().describe("Image prompt describing current scene"),
+  hp_current: z.number().describe("Current HP after this turn"),
+  gold: z.number().describe("Current gold after this turn"),
+  inventory: z.array(z.string()).describe("Current inventory items"),
+  options: z.array(z.string()).describe("3 action options for the player"),
+  game_over: z.boolean().describe("True if HP <= 0 or story ends"),
+});
+
+// Schema for epilogue generation response (structured output)
+const epilogueResponseSchema = z.object({
+  epilogue_title: z.string().describe("A poetic title for the ending (e.g., 'The Dawn After Darkness')"),
+  epilogue_text: z.string().describe("2-3 paragraphs describing what happens after the story ends, written in past tense, reflecting on the character's journey and their ultimate fate"),
+  ending_type: z.enum(['victory', 'death', 'bittersweet', 'mysterious']).describe("The type of ending achieved"),
+  legacy: z.string().describe("A single sentence describing how the character will be remembered"),
+  visual_prompt: z.string().describe("A cinematic image prompt for the epilogue scene"),
 });
 
 // Helper to get client IP address (for anonymous rate limiting)
@@ -63,9 +96,9 @@ async function checkIpRateLimit(ipAddress: string): Promise<{ allowed: boolean; 
   return { allowed: true };
 }
 
-// Constants for subscription limits
-const FREE_USER_MAX_ADVENTURES = 3; // Free signed-in users can have up to 3 saved adventures
-const FREE_USER_HISTORY_LIMIT = 3;  // Free users see last 3 adventures
+// Constants for subscription limits (not currently enforced - all logged-in users unlimited)
+const _FREE_USER_MAX_ADVENTURES = 3; // Reserved for future premium tier
+const FREE_USER_HISTORY_LIMIT = 3;  // Free users see last 3 adventures in history list
 
 export async function registerRoutes(
   httpServer: Server,
@@ -175,6 +208,43 @@ export async function registerRoutes(
     }
   });
 
+  // Get adventure's last image as binary (efficient, cacheable)
+  app.get('/api/adventures/:id/image', isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      const adventure = await storage.getAdventure(id);
+      
+      if (!adventure) {
+        return res.status(404).json({ message: "Adventure not found" });
+      }
+
+      if (adventure.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (!adventure.lastImage) {
+        return res.status(404).json({ message: "No image available" });
+      }
+
+      // Convert base64 to binary and serve with proper content-type
+      const imageBuffer = Buffer.from(adventure.lastImage, 'base64');
+      res.set({
+        'Content-Type': 'image/jpeg',
+        'Content-Length': imageBuffer.length,
+        'Cache-Control': 'private, max-age=3600', // Cache for 1 hour
+      });
+      res.send(imageBuffer);
+    } catch (error) {
+      console.error("Error serving adventure image:", error);
+      res.status(500).json({ message: "Failed to serve image" });
+    }
+  });
+
   // Create new adventure
   app.post('/api/adventures', isAuthenticated, async (req, res) => {
     try {
@@ -183,28 +253,8 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const user = await storage.getUser(userId);
-      const isPremium = user?.isPremium || false;
-
-      // Check adventure limit for free users
-      if (!isPremium) {
-        const existingAdventures = await storage.getUserAdventures(userId);
-        const activeAdventures = existingAdventures.filter(a => a.status === 'active');
-        
-        if (activeAdventures.length >= 1) {
-          return res.status(403).json({ 
-            message: "Free users can only have 1 active adventure. Complete or abandon your current adventure first, or upgrade to premium.",
-            activeAdventureId: activeAdventures[0].id,
-          });
-        }
-
-        // Check total adventures limit
-        if (existingAdventures.length >= FREE_USER_MAX_ADVENTURES) {
-          return res.status(403).json({ 
-            message: `Free users can save up to ${FREE_USER_MAX_ADVENTURES} adventures. Delete an old adventure or upgrade to premium.`,
-          });
-        }
-      }
+      // All logged-in users get unlimited adventures for now
+      // Premium tier limits can be added later if needed
 
       // Validate request body
       const validationResult = insertAdventureSchema.safeParse({
@@ -597,7 +647,7 @@ export async function registerRoutes(
     try {
       const { name, gender, race, class: charClass, customInstructions } = req.body;
       
-      if (!GEMINI_API_KEY) {
+      if (!GEMINI_API_KEY || !genAI) {
         return res.json({
           title: "The Shadow of the Void",
           act1: "You awaken in a cold, dark cell with no memory of how you arrived.",
@@ -610,28 +660,57 @@ export async function registerRoutes(
       }
 
       logAI(role, 'start');
-      const prompt = `You are a master RPG Architect. Create a rich, 3-Act Campaign Structure and Backstories.
-      Player Name: "${name}".
-      Details: ${gender} ${race} ${charClass}.
-      Theme: "${customInstructions || 'dark fantasy adventure'}".
-      
-      Output JSON ONLY:
-      {
-          "title": "Campaign Title",
-          "act1": "The Setup & Inciting Incident (1 sentence)",
-          "act2": "The Twist & Rising Action (1 sentence)",
-          "act3": "The Climax & Final Boss (1 sentence)",
-          "possible_endings": ["Good Ending", "Bad Ending", "Twist Ending"],
-          "world_backstory": "1 short paragraph (3-4 sentences) describing the world.",
-          "character_backstory": "1 short paragraph (3-4 sentences) describing ${name}'s past and motivation."
-      }`;
+      const prompt = `You are a master RPG Architect specializing in immersive storytelling and character-driven narratives.
 
-      const text = await callGemini(prompt, true);
-      let campaign = JSON.parse(text);
-      
-      if (Array.isArray(campaign)) {
-        campaign = campaign[0];
-      }
+      Create a compelling 3-Act Campaign Structure with deep backstories.
+
+      **Character Details:**
+      - Name: "${name}"
+      - Race: ${race}
+      - Class: ${charClass}
+      - Gender: ${gender}
+
+      **Campaign Theme:** "${customInstructions || 'dark fantasy adventure'}"
+
+      **Requirements:**
+
+      1. **Campaign Title:** Create an evocative title that hints at the central conflict or mystery
+
+      2. **Three-Act Structure:**
+        - Act 1: Establish the ordinary world, introduce a personal hook for ${name}, and present the inciting incident that disrupts their life
+        - Act 2: Escalate stakes with a major revelation or betrayal that challenges ${name}'s beliefs; introduce moral dilemmas
+        - Act 3: Bring ${name} face-to-face with the ultimate antagonist in a climactic confrontation where their choices throughout the campaign matter
+
+      3. **Three Distinct Endings:** 
+        - Each should reflect different moral choices or priorities (e.g., power vs. sacrifice, revenge vs. mercy, duty vs. freedom)
+        - Ensure endings have meaningful consequences for the world and ${name}
+
+      4. **World Backstory (3-4 sentences):**
+        - Establish the current state of the world and its recent history
+        - Include a lurking threat or unresolved conflict that sets the stage
+        - Hint at ancient lore, fallen kingdoms, or forgotten magic relevant to the theme
+
+      5. **Character Backstory (3-4 sentences):**
+        - Give ${name} a personal tragedy, mystery, or unfulfilled oath that drives them
+        - Connect their ${race} heritage and ${charClass} skills to their past
+        - Include a relationship (mentor, rival, lost loved one) that can resurface in the campaign
+        - Make their motivation align organically with the campaign's central conflict
+
+      **Tone:** Match the "${customInstructions || 'dark fantasy adventure'}" theme. 
+      Be specific with names, locations, and factions. 
+      Create hooks that make the player care personally about the outcome.`;
+
+      const response = await genAI.models.generateContent({
+        model: MODEL_TEXT,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: zodToJsonSchema(campaignResponseSchema),
+        },
+      });
+
+      const text = response.text || "";
+      const campaign = campaignResponseSchema.parse(JSON.parse(text));
       
       logAI(role, 'done', startTime);
       res.json(campaign);
@@ -663,7 +742,30 @@ export async function registerRoutes(
       }
 
       logAI(role, 'start');
-      const prompt = `Generate a concise (max 25 words) visual description for a dark fantasy RPG character. Role: ${gender} ${race} ${charClass}. Requirements: Describe physique, hair, eyes, and clothing/armor. Output: Just the description text.`;
+      const prompt = `You are a visual concept artist creating a character description for AI image generation in a dark fantasy RPG setting.
+
+**CHARACTER:** ${gender} ${race} ${charClass}
+
+**INSTRUCTIONS:**
+Generate a precise, vivid visual description (60-80 words) optimized for consistent AI image generation. MUST begin with gender identifier (male, female, non-binary). Include ALL of the following elements:
+**Gender & Physical Build:** START with "Male" or "Female" or "Non-binary", then describe build. Male (broad-shouldered, muscular, stocky, lean, battle-scarred, powerful) | Female (athletic, lithe, strong, muscular, warrior's build, battle-hardened, powerful) | Non-binary (androgynous, balanced, graceful yet strong). Include height: tall, average, short, towering, compact.
+**Face & Skin:** Specify skin tone (pale, tan, olive, dark brown, bronze, ebony, fair, ruddy, etc.), face shape (angular, weathered, sharp-featured, square-jawed, feminine, masculine, androgynous), and distinctive marks (scars, tattoos, war paint, ritual markings). Add race-specific features: Elf (pointed ears - CRITICAL), Dwarf (thick beard for males, rugged features, stocky), Orc/Half-Orc (tusks, green/gray skin, powerful build), Tiefling (horns, tail, unusual skin color like red/purple/blue), Dragonborn (scales, reptilian eyes, draconic features), Halfling (small 3-4 feet, youthful), Gnome (tiny 3 feet, large eyes).
+**Hair (CRITICAL for consistency):** MUST specify exact color (jet black, silver-white, auburn, copper, raven, golden blonde, gray-streaked, platinum, crimson, dark brown) AND exact style (long flowing, braided, short cropped, shaved sides with topknot, mohawk, wild and unkempt, ponytail, bald, shoulder-length, waist-length, etc.). Be very specific - this is essential for visual consistency across images.
+**Eyes (CRITICAL for consistency):** MUST specify exact color (piercing blue, amber, emerald green, silver, violet, heterochromatic [one blue one green], steel-gray, golden, crimson, ice-blue, sapphire) and quality/expression (steely gaze, haunted look, fierce stare, kind eyes, calculating, determined, weary).
+**Clothing/Armor (class-appropriate with colors):** Warrior (heavy plate armor, chainmail, battle-worn steel, fur-trimmed pauldrons, iron gauntlets) | Rogue (dark leather armor, hooded cloak, studded leather, shadow-black garments, flexible gear) | Mage (flowing robes, arcane symbols, pointed hat, star-patterned cloak, mystical jewelry, spell tome) | Cleric/Paladin (holy symbols, blessed armor, white/silver accents, sacred vestments, divine iconography) | Ranger (practical leather, forest colors green/brown, travel-worn gear, bow and quiver). MUST include specific colors (crimson cloak, midnight blue robes, weathered brown leather, tarnished silver armor, black steel) and 1-2 distinctive signature items (ornate belt buckle, skull pauldrons, glowing amulet, runed blade, enchanted rings, family crest shield).
+**Dark Fantasy Aesthetic:** Include weathered, battle-worn, or grim details showing experience and hardship. Mention scars, wear, age marks, or trauma when appropriate. Use dark, muted, or rich color palettes (avoid bright cheerful colors). Focus on practical, functional gear over ornate decoration. Convey a sense of history, survival, and the weight of their journey.
+
+**GENDER REPRESENTATION GUIDELINES:**
+- **Male characters:** Can include facial hair (beard, stubble, mustache), broader shoulders, square jaw, masculine features, but also show vulnerability or weariness
+- **Female characters:** Strong, capable, battle-ready descriptions; athletic/muscular builds are appropriate; avoid sexualization; focus on competence and warrior presence
+- **Non-binary characters:** Androgynous features, balanced masculine/feminine traits, ambiguous beauty, neither overtly male nor female presentation
+
+**OUTPUT FORMAT:** Provide ONLY the description text (60-80 words). MUST start with "Male" or "Female" or "Non-binary" followed by race. No preamble, labels, or extra explanatory text—just the pure visual description.
+
+**EXAMPLE OUTPUTS:**
+"Male human with broad shoulders and battle-scarred tan skin, square jaw. Short-cropped black hair with gray at temples. Piercing steel-blue eyes, jagged scar across left cheek. Wears battered plate armor with crimson wolf sigil, dark leather underneath. Heavy greatsword with notched blade. Thick beard braided with iron rings. Weathered face shows years of combat."
+"Female elf with lithe athletic build, pale porcelain skin, sharp angular features. Long silver-white hair flowing past shoulders, adorned with crystal beads. Luminous violet eyes, otherworldly gaze. Pointed ears visible. Wears deep purple robes embroidered with silver arcane runes, pointed hood. Carries gnarled oak staff topped with glowing sapphire. Slender hands bear mystical tattoos."
+"Male half-orc with towering muscular frame, gray-green skin, prominent lower tusks. Bald head with ritual scars across scalp. Fierce amber eyes beneath heavy brow. Wears crude iron plate armor with bone ornaments, fur shoulder pads. Massive double-bladed axe strapped to back. Battle-worn, intimidating presence."`;
       const description = await callGemini(prompt, false);
       
       logAI(role, 'done', startTime);
@@ -721,7 +823,237 @@ export async function registerRoutes(
 
       logAI(role, 'start');
       
-      const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${(context.inventory || []).join(', ')}. Current HP: ${context.hp}.`;
+      const systemPrompt = `You are an expert Dungeon Master crafting an immersive RPG experience.
+
+**CAMPAIGN CONTEXT:**
+- Title: "${c.title}"
+- Theme: ${context.customInstructions}
+- Act 1: ${c.act1}
+- Act 2: ${c.act2}
+- Act 3: ${c.act3}
+- Possible Endings: ${c.possible_endings.join(' | ')}
+
+**WORLD BACKSTORY:**
+${c.world_backstory || 'A mysterious realm shrouded in darkness and ancient magic.'}
+
+**CHARACTER:**
+- Name: ${context.name}
+- Gender: ${context.gender}
+- Role: ${context.race} ${context.class}
+- Visual Features: ${context.characterDescription}
+- Current HP: ${context.hp}
+- Gold: ${context.gold}
+- Inventory: ${(context.inventory || []).length > 0 ? (context.inventory || []).join(', ') : 'Empty'}
+
+**CHARACTER BACKSTORY:**
+${c.character_backstory || `${context.name} is an adventurer seeking fortune and glory.`}
+
+**NARRATIVE REQUIREMENTS (4-6 sentences):**
+1. Write in 2nd person perspective ("You...")
+2. Only use the character's name when someone addresses the character directly or when the character is mentioned in the narrative.
+3. Create vivid sensory details (sights, sounds, smells, textures, atmosphere)
+4. Show consequences of previous actions when relevant
+5. Build tension and emotional stakes
+6. Include environmental storytelling (weather, time of day, ambient details)
+7. Vary pacing: balance action, exploration, dialogue, and introspection
+8. Use strong verbs and evocative language that matches the ${context.customInstructions} theme
+9. Make the world feel alive with NPCs, creatures, or environmental reactions
+10. Format with Markdown for emphasis (*italics* for thoughts/whispers, **bold** for important items/names)
+
+**VISUAL PROMPT REQUIREMENTS:**
+Generate a detailed cinematic prompt for image generation of the CURRENT scene.
+
+**CRITICAL: DO NOT USE THE CHARACTER'S NAME IN VISUAL PROMPTS. Instead, describe them using their physical features from the character.Visual Features.**
+
+**CHARACTER VISUAL IDENTITY:**
+Always describe the protagonist using these exact features: "${context.characterDescription}"
+- Build all visual descriptions around these physical characteristics
+- Reference specific details: hair color/style, eye color, distinctive features, build, etc.
+- If HP < 50%: Add visible injuries, blood, exhaustion, torn clothing consistent with their appearance
+- Include visible inventory items that make sense for the scene
+
+**PERSPECTIVE SELECTION GUIDE - Choose the BEST angle for dramatic impact:**
+
+**1. FIRST-PERSON POV (Player's Eyes):**
+Use for: Intimate moments, discovering secrets, reading documents, tense confrontations, horror/suspense, aiming weapons/spells, opening doors/chests, looking down from heights
+
+STRUCTURE: "First-person POV: [What player sees directly ahead]. [Player's hands/weapons visible in frame - describe using features from characterDescription like skin tone, scars, tattoos]. [Environment details]. [Lighting and atmosphere]."
+
+EXAMPLES:
+- "First-person POV: Calloused hands with silver rings grip a flickering torch, illuminating a narrow stone corridor ahead. Ancient hieroglyphs cover damp walls, water dripping from stalactites above. A distant growl echoes from the darkness beyond the torch's reach. Claustrophobic framing, cold blue ambient light mixing with warm torchlight, moisture glistening on stone. Dark fantasy, high detail, atmospheric horror."
+
+- "First-person POV: Looking down the shaft of a drawn bow, arrow nocked and aimed at a massive troll emerging from forest shadows 30 meters ahead. Leather-wrapped hands with faded tribal tattoos steady the weapon. Dappled sunlight through ancient trees, morning mist swirling around the troll's feet. Shallow depth of field, troll slightly blurred in background. Heroic fantasy, cinematic composition, concept art."
+
+- "First-person POV: Gauntleted hands reach toward an ornate golden chalice on a velvet cushion atop a stone pedestal. Rays of divine light stream through stained glass windows, illuminating dancing dust motes. Shadowy cathedral interior, vaulted ceiling barely visible above. Sense of reverence and temptation. Warm dramatic lighting, high detail, digital painting style."
+
+**2. THIRD-PERSON OVER-THE-SHOULDER:**
+Use for: Combat positioning, navigating environments, conversing with NPCs, showing context while keeping player central, transitional moments
+
+STRUCTURE: "Over-the-shoulder third-person: [Camera position behind character]. [Character visible features from behind: hair, armor, weapons, build]. [What character faces]. [Environmental context]."
+
+EXAMPLES:
+- "Over-the-shoulder third-person view: Camera behind a figure with long braided red hair and leather armor studded with iron, showing their back and right shoulder. They face a towering dragon perched atop a treasure hoard, its amber eyes glowing in the firelit cavern. Their hand rests on sword hilt, muscular shoulders tensed. Scattered gold coins and gems reflect firelight. Low angle emphasizing dragon's size. Epic scale, dramatic lighting, dark fantasy art."
+
+- "Over-the-shoulder view from left side: A robed figure with a distinctive wide-brimmed hat and gnarled wooden staff stands before an ancient wizard in star-covered robes, both in a circular library with floor-to-ceiling bookshelves spiraling upward. Floating candles illuminate dusty tomes. Purple cloak with silver trim visible, staff crackling with arcane energy. Mysterious atmosphere, warm candlelight, magical realism, detailed background."
+
+**3. THIRD-PERSON SIDE VIEW (Profile):**
+Use for: Showing movement/travel, cliff edges, balancing acts, dramatic entrances, stealth sequences, showcasing character design against environment
+
+STRUCTURE: "Third-person side profile view: [Character's full profile showing features from character.Visual Features]. [Direction of movement/gaze]. [Environmental context on both sides]. [Atmospheric elements]."
+
+EXAMPLES:
+- "Third-person side profile view: A tall warrior with a scarred face and close-cropped black hair walks along a narrow mountain ledge, body pressed against the cliff face, arms spread for balance. Chain mail visible beneath tattered green cloak. To the left, sheer rock wall covered in ice; to the right, a dizzying drop into clouds below. Harsh wind whips cloak and hair horizontally. Late afternoon light, golden hour glow on distant peaks. Vertigo-inducing composition, adventure fantasy, photorealistic detail."
+
+- "Side view silhouette: A lithe figure with a distinctive ponytail and dual daggers crouches in tall grass, moving stealthily from left to right across frame. In background, an enemy encampment with campfires and tents visible. Moonlit night, character backlit by distant fires creating dramatic rim lighting. Stars visible in clear sky. Tense atmosphere, cool blue and warm orange color palette, cinematic stealth aesthetic."
+
+**4. THIRD-PERSON WIDE/ESTABLISHING SHOT:**
+Use for: Showing scale, introducing new locations, environmental hazards, army battles, showcasing landscape, beginning of scenes
+
+STRUCTURE: "Wide establishing shot: [Full environment description]. [Character position in scene described by visual features, relatively small in frame]. [Environmental details and scope]. [Atmospheric conditions]."
+
+EXAMPLES:
+- "Wide establishing shot, high angle: Vast ruined temple complex sprawls across a jungle clearing, crumbling stone pillars and vine-covered statues scattered throughout. A lone figure in bronze armor with a distinctive red cape stands at the entrance stairs, dwarfed by massive carved doorway. Mist rises from surrounding jungle canopy, ancient trees tower overhead. Overcast sky, diffused lighting, sense of lost civilization. Epic fantasy, matte painting style, intricate detail."
+
+- "Extreme wide shot: Desolate battlefield at dusk, hundreds of broken weapons and armor scattered across muddy ground. A solitary warrior with flowing white hair and dark plate armor walks alone through the carnage, small figure in center-frame moving toward the horizon. Burning siege towers smoke in background, ravens circle overhead. Purple-orange sunset bleeding through storm clouds. Melancholic atmosphere, desaturated colors, grimdark fantasy, painterly style."
+
+**5. THIRD-PERSON CLOSE-UP (Face/Upper Body):**
+Use for: Emotional moments, character reactions, injuries, exhaustion, triumph, despair, important dialogue
+
+STRUCTURE: "Close-up third-person: [Character's face and upper body using exact features from character.Visual Features]. [Emotional state and expression]. [Visible details: wounds, dirt, tears, determination]. [Immediate background blur or relevant close detail]."
+
+EXAMPLES:
+- "Close-up third-person shot: A face with piercing green eyes and a jagged scar across the left cheek fills frame, eyes wide with shock and fear. Blood trickles from a cut above the brow, dirt and sweat smeared across tan skin. Short auburn hair matted with grime. Behind them, out of focus flames and smoke. Harsh side lighting from fire, creating dramatic shadows across angular features. Raw emotion, high detail on skin texture and eyes. Cinematic realism, gritty dark fantasy."
+
+- "Medium close-up: A youthful face framed by wild curly black hair shows triumphant expression, head tilted back slightly, victorious smile despite exhaustion. Rain streams down dark skin, washing away grime. Golden eyes gleaming with victory. Behind them, blurred silhouette of defeated enemy collapsing. Dramatic storm lighting, lightning flash illuminating scene. Cathartic moment, heroic fantasy, dynamic composition."
+
+**6. THIRD-PERSON LOW ANGLE (Looking Up):**
+Use for: Emphasizing power/intimidation, facing giants/dragons, climbing, moments of triumph, boss encounters
+
+STRUCTURE: "Low angle looking up: [Camera positioned below character]. [Character's dominant positioning described by build, armor, weapon]. [Towering threats or environment above]. [Sky/ceiling visible]."
+
+EXAMPLES:
+- "Dramatic low angle: Camera looks up at a broad-shouldered warrior with a distinctive horned helmet and flowing crimson cape standing atop a pile of defeated enemies, massive war-axe raised high against a stormy sky. Lightning cracks behind them creating a heroic silhouette. Cape billows dramatically in wind. Rain falls diagonally across frame. Powerful composition, epic fantasy, inspirational tone, high contrast lighting."
+
+- "Low angle perspective: A lithe figure in dark leather armor with intricate silver patterns stands at the base of a colossal stone golem awakening from centuries of slumber, camera looking up showing both character and the massive construct's lower body and torso extending beyond frame. Long platinum blonde hair whips in the disturbed air. Dust and small rocks fall from the golem's movements. Underground cavern setting, bioluminescent fungi providing eerie green glow. Sense of scale and danger, dark fantasy, detailed textures."
+
+**7. THIRD-PERSON HIGH ANGLE (Looking Down):**
+Use for: Showing tactical situations, vulnerability, falling, maze-like environments, strategic overview, character isolation
+
+STRUCTURE: "High angle looking down: [Bird's eye or elevated view]. [Character position from above using visible features like hair, armor pattern, cloak]. [Surrounding environment layout]. [Patterns and spatial relationships]."
+
+EXAMPLES:
+- "High angle bird's eye view: Directly above a figure with distinctive bright blue robes embroidered with silver stars as they navigate a complex hedge maze, their small form visible at an intersection of paths. Pointed wizard hat clearly visible from above. Multiple dead-end routes visible around them, shadows of the high hedge walls creating a geometric pattern. Late afternoon light creates long shadows. Sense of being lost and watched. Strategic puzzle atmosphere, fantasy adventure, clean composition."
+
+- "Elevated high angle: A warrior in battered plate armor with a distinctive griffin emblem lies wounded on ancient temple floor, camera 20 feet above looking down. They clutch their side, crimson blood staining silver armor. Broken shield and spilled supplies scattered nearby. Circular ritual markings on the stone floor beneath them. Shafts of light from holes in ceiling illuminate dust. Vulnerable moment, dramatic lighting, dark fantasy aesthetic."
+
+**8. DUTCH ANGLE (Tilted/Canted):**
+Use for: Disorientation, madness, supernatural events, reality warping, unstable situations, psychological horror
+
+STRUCTURE: "Dutch angle (tilted 15-30 degrees): [Tilted framing]. [Character's disoriented state showing features]. [Environment appearing unstable]. [Unsettling atmosphere]."
+
+EXAMPLES:
+- "Dutch angle, 25-degree tilt: A figure with wild, unkempt gray hair and tattered robes stumbles through a reality-warped corridor where walls bend impossibly, perspective skewed and disorienting. Their face shows confusion and terror, one pale hand on the shifting wall for balance. Colors bleed and blur at edges, purple and green energy crackling through cracks in reality. Surreal horror atmosphere, distorted proportions, eldritch fantasy, unsettling composition."
+
+**9. EXTREME CLOSE-UP (Macro Detail):**
+Use for: Reading inscriptions, examining clues, magical effects, potion brewing, lockpicking, intricate mechanisms
+
+STRUCTURE: "Extreme close-up: [Specific detail filling frame]. [Character's hand/tool interacting - describe skin tone, scars, jewelry]. [Fine textures and materials]. [Focused lighting]."
+
+EXAMPLES:
+- "Extreme close-up macro shot: Weathered brown fingers with calluses and old burn scars trace glowing runic inscriptions carved into ancient stone, magical blue light emanating from the symbols as they're touched. Intricate detail on the carved lettering, fingertip showing dirt under nail. Shallow depth of field, background completely blurred. Magical atmosphere, warm skin tones against cool blue magic light. High detail, fantasy realism."
+
+**COMPREHENSIVE VISUAL PROMPT STRUCTURE:**
+
+**[PERSPECTIVE TYPE]: [Subject & Action described using ${context.characterDescription} features NEVER the name]. [Specific Physical Details: hair color/style, eye color, skin tone, build, distinctive features, scars, tattoos]. [Clothing/Armor Details]. [HP State: if HP < 50% show injuries/exhaustion consistent with their appearance]. [Inventory Items visible if relevant]. [Environment Details: architecture, terrain, setting]. [Lighting: time of day, sources, quality, shadows]. [Weather & Atmosphere: conditions, mood]. [Color Palette: dominant colors and tones]. [Action/Motion: what's happening right now]. [Other Elements: NPCs, creatures, threats]. [Emotional Tone]. [Style Tags: "cinematic composition, dramatic lighting, high detail, ${context.customInstructions} theme, [art style]"].**
+
+**DYNAMIC PERSPECTIVE DECISION TREE:**
+
+→ Player discovering/examining something? → **First-person POV**
+→ Combat or navigation? → **Over-the-shoulder third-person**
+→ Character traveling/moving laterally? → **Side view profile**
+→ New location or showing scale? → **Wide establishing shot**
+→ Emotional moment or reaction? → **Close-up**
+→ Facing powerful enemy/showing dominance? → **Low angle**
+→ Tactical situation or vulnerability? → **High angle**
+→ Supernatural/disorienting event? → **Dutch angle**
+→ Examining fine detail? → **Extreme close-up**
+
+**EXAMPLE VISUAL PROMPTS USING CHARACTER FEATURES:**
+
+**Boss Battle Start:**
+"Low angle third-person: A warrior with a distinctive braided mohawk, tribal face paint, and massive build stands defiantly before a towering demon wreathed in flames, camera positioned low emphasizing the demon's 20-foot height. Weapon drawn, body in combat stance despite visible exhaustion and bleeding shoulder wound (HP at 40%). Heavy fur-trimmed armor with bone ornaments. Crumbling throne room, broken pillars and scattered skulls. Hellfire illuminates the scene in orange and red, casting dancing shadows. Smoke and embers swirl through air. Epic confrontation, dark fantasy, highly detailed, concept art style."
+
+**Stealth Infiltration:**
+"First-person POV: Gloved hands in dark leather carefully ease open a creaking wooden door, revealing a torch-lit guard room beyond. Two guards sit at a table playing dice, backs turned, unaware. A curved dagger with a serpent-wrapped hilt visible at bottom of frame. Stone castle interior, night, limited light sources. Tense atmosphere, shadows deep and concealing. Stealth gameplay aesthetic, dark fantasy, atmospheric lighting."
+
+**Exploration Discovery:**
+"Wide establishing shot: Ancient underground library with vaulted ceiling disappearing into darkness above, thousands of deteriorating books line massive shelves. A small robed figure with a glowing staff and distinctive pointed hood stands on a balcony overlooking the vast repository. Beams of dusty light from cracks above, floating dust motes. Sense of wonder and lost knowledge. Cool blue and warm gold lighting, atmospheric, high fantasy, matte painting quality."
+
+**Emotional Victory:**
+"Close-up third-person: A face with kind brown eyes and weathered features shows an expression mixing relief, exhaustion, and joy as they hold a recovered sacred amulet glowing with golden light. Tears streak through dirt on olive skin, gentle smile. Gray-streaked black hair falls across forehead. Soft golden sunrise light illuminating from the side. Blurred background suggests end of journey. Cathartic moment, warm color palette, cinematic emotion, photorealistic detail."
+
+**GAMEPLAY MECHANICS:**
+
+1. **HP Management:**
+   - Combat encounters: -5 to -20 HP depending on severity
+   - Minor injuries: -1 to -5 HP
+   - Healing items: +5 to +10 HP depending on the type of item
+   - Rest: FULL HP
+   - Environmental hazards: -5 to -20 HP
+   - Maximum HP: 15-30 depending on the character's class
+   - IF hp_current <= 0: Set game_over to TRUE
+
+2. **Gold Economy:**
+   - Found treasure: +10 to +100 gold (scale to encounter importance)
+   - Looting enemies: +5 to +50 gold
+   - Quest rewards: +50 to +200 gold
+   - Purchases/bribes: -10 to -100 gold
+   - Track realistically based on narrative events
+
+3. **Inventory Management:**
+   - Add items when found, purchased, or received
+   - Remove items when used, sold, or lost
+   - Include: weapons, armor, consumables (potions, food), quest items, treasure, tools
+   - Be specific: "Rusty Iron Longsword" not just "sword"
+   - Limit to 10-12 items maximum for realism
+
+4. **Game Over Conditions:**
+   - HP drops to 0 or below
+   - Story reaches one of the three possible endings
+   - Character makes a definitively fatal choice
+   - When game_over is TRUE, narrative should describe the outcome (death/victory/resolution)
+
+**PLAYER OPTIONS (Always provide exactly 3):**
+
+Create meaningful choices that:
+1. **Reflect different approaches:** Combat vs Stealth vs Diplomacy vs Magic vs Clever/Creative solution
+2. **Have clear but uncertain consequences:** Players should anticipate risks/rewards but not know exact outcomes
+3. **Tie to character class:** Include at least one option that leverages ${context.class} abilities
+4. **Vary in risk/reward:** One safe option, one risky option, one moderate option
+5. **Advance the narrative:** Each option should move the story forward, not stall
+6. **Use active, specific language:** "Charge the orc chieftain with your blade raised" not "Attack"
+
+FORMATTING:
+- Each option: 6-12 words
+- Start with strong action verbs
+- Include relevant details (what, how, or with what)
+
+**PROGRESSION & PACING:**
+- Track approximate story progress (early/mid/late) based on Act structure
+- Escalate stakes and difficulty as the campaign advances
+- Introduce Act 2 twists around 30-40% progress
+- Build toward Act 3 climax around 70-80% progress
+- Foreshadow the three possible endings through choices and consequences
+
+**CRITICAL REMINDERS:**
+- Consistency: Remember previous events and choices
+- Consequences: Player actions should have lasting effects
+- Tone: Match ${context.customInstructions} throughout
+- Immersion: Make ${context.name} feel like the protagonist of an epic tale
+- Balance: Mix combat, exploration, roleplay, and puzzle-solving
+- Stakes: Every choice should matter, even if subtly
+- **VARY VISUAL PERSPECTIVES:** Don't use the same camera angle repeatedly. Match perspective to narrative drama and scene type
+- **NEVER USE CHARACTER NAME IN VISUAL PROMPTS:** Always use physical features from "${context.characterDescription}" instead`;
 
       if (!genAI) {
         throw new Error("GEMINI_API_KEY not configured");
@@ -744,6 +1076,7 @@ export async function registerRoutes(
         config: {
           systemInstruction: systemPrompt,
           responseMimeType: "application/json",
+          responseSchema: zodToJsonSchema(chatResponseSchema),
         },
       });
       
@@ -752,7 +1085,7 @@ export async function registerRoutes(
         throw new Error("No content in response");
       }
       
-      const response = JSON.parse(text);
+      const response = chatResponseSchema.parse(JSON.parse(text));
       logAI(role, 'done', startTime);
       res.json(response);
 
@@ -771,12 +1104,13 @@ export async function registerRoutes(
   });
 
   // Image generation using Google GenAI SDK
+  // Optionally saves to adventure if adventureId is provided
   app.post('/api/ai/image', async (req, res) => {
     const startTime = Date.now();
     const role = "Image Artist";
     
     try {
-      const { prompt } = req.body;
+      const { prompt, adventureId } = req.body;
       
       if (!genAI) {
         return res.json({ image: null });
@@ -803,8 +1137,17 @@ export async function registerRoutes(
       if (parts && parts.length > 0) {
         for (const part of parts) {
           if (part.inlineData?.data) {
+            const imageData = part.inlineData.data;
+            
+            // Save to adventure if adventureId provided (no auth check needed - just saves)
+            if (adventureId) {
+              storage.updateAdventure(adventureId, { lastImage: imageData }).catch(err => {
+                console.error('Failed to save lastImage to adventure:', err);
+              });
+            }
+            
             logAI(role, 'done', startTime);
-            return res.json({ image: part.inlineData.data });
+            return res.json({ image: imageData });
           }
         }
       }
@@ -814,6 +1157,102 @@ export async function registerRoutes(
     } catch (error) {
       logAI(role, 'error', startTime);
       res.json({ image: null });
+    }
+  });
+
+  // Generate epilogue based on entire conversation history
+  app.post('/api/ai/epilogue', async (req, res) => {
+    const startTime = Date.now();
+    const role = "Epilogue Writer";
+    
+    try {
+      const { history, context } = req.body;
+      
+      if (!genAI) {
+        return res.json({
+          epilogue_title: "The End of the Tale",
+          epilogue_text: "And so the adventure came to its conclusion. The echoes of their deeds would linger long after they were gone.",
+          ending_type: "mysterious",
+          legacy: "A wanderer whose story became legend.",
+          visual_prompt: "A lone figure silhouetted against a sunset sky"
+        });
+      }
+
+      const c = context?.endgame;
+      if (!c) {
+        return res.status(400).json({ message: "Missing campaign data" });
+      }
+
+      logAI(role, 'start');
+      
+      // Build a summary of the conversation for the epilogue
+      const conversationSummary = (history || []).map((h: { role: string; parts: { text: string }[] }) => {
+        const role = h.role === 'user' ? 'PLAYER ACTION' : 'STORY';
+        const text = h.parts?.map((p: { text: string }) => p.text).join(' ') || '';
+        return `${role}: ${text}`;
+      }).join('\n\n');
+
+      const epiloguePrompt = `You are an master storyteller writing the epilogue for a completed RPG adventure.
+
+**CAMPAIGN THAT JUST ENDED:**
+- Title: "${c.title}"
+- Theme: ${context.customInstructions}
+- World: ${c.world_backstory}
+- Act 1: ${c.act1}
+- Act 2: ${c.act2}
+- Act 3: ${c.act3}
+- Possible Endings: ${c.possible_endings.join(' | ')}
+
+**CHARACTER:**
+- Name: ${context.name}
+- Role: ${context.race} ${context.class}
+- Appearance: ${context.characterDescription}
+- Character Background: ${c.character_backstory}
+- Final HP: ${context.hp}
+- Final Gold: ${context.gold}
+- Final Inventory: ${(context.inventory || []).join(', ') || 'Nothing'}
+
+**COMPLETE ADVENTURE HISTORY:**
+${conversationSummary}
+
+**YOUR TASK:**
+Write a moving epilogue that:
+1. Reflects on the entire journey from beginning to end
+2. Describes what happens AFTER the final scene (days, months, or years later)
+3. Honors the character's choices and their consequences
+4. Matches the ${context.customInstructions} theme and tone
+5. If the character died (HP <= 0), describe how they are remembered
+6. If the character survived, describe their future and legacy
+7. Reference specific memorable moments from the adventure
+8. Write in past tense, third person, literary style
+9. The epilogue_text should be 2-3 rich paragraphs
+10. The visual_prompt should depict a cinematic epilogue scene (memorial, celebration, peaceful retirement, etc.)`;
+
+      const response = await genAI.models.generateContent({
+        model: MODEL_TEXT,
+        contents: [{ role: 'user', parts: [{ text: epiloguePrompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: zodToJsonSchema(epilogueResponseSchema),
+        },
+      });
+
+      const text = response.text || "";
+      const epilogue = epilogueResponseSchema.parse(JSON.parse(text));
+      
+      logAI(role, 'done', startTime);
+      res.json(epilogue);
+
+    } catch (error) {
+      logAI(role, 'error', startTime);
+      console.error("Epilogue generation error:", error);
+      res.status(500).json({
+        epilogue_title: "The End",
+        epilogue_text: "And so the tale came to its end. What adventures await beyond, only time will tell.",
+        ending_type: "mysterious",
+        legacy: "Their story lives on in whispered legends.",
+        visual_prompt: "A weathered book closing on an epic tale, dust motes floating in candlelight"
+      });
     }
   });
 

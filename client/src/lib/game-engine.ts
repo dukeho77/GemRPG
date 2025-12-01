@@ -20,6 +20,7 @@ export interface GameState {
   lastNarrative?: string;
   lastOptions?: string[];
   lastAction?: string;
+  lastImage?: string; // Last scene image (base64) for resume
 }
 
 export interface HistoryEntry {
@@ -47,6 +48,14 @@ export interface TurnResponse {
   game_over: boolean;
 }
 
+export interface EpilogueResponse {
+  epilogue_title: string;
+  epilogue_text: string;
+  ending_type: 'victory' | 'death' | 'bittersweet' | 'mysterious';
+  legacy: string;
+  visual_prompt: string;
+}
+
 // Server-side adventure types
 export interface Adventure {
   id: string;
@@ -66,6 +75,7 @@ export interface Adventure {
   maxTurns: number;
   status: 'active' | 'completed' | 'abandoned';
   endingType: 'victory' | 'death' | 'limit_reached' | null;
+  lastImage?: string | null; // Last generated scene image (base64) - stripped from API responses
   createdAt: string;
   updatedAt: string;
   lastPlayedAt: string;
@@ -200,20 +210,42 @@ export const API = {
     }
   },
 
-  // Image generation via server
-  async generateImage(prompt: string): Promise<string | null> {
+  // Image generation via server (optionally saves to adventure if adventureId provided)
+  async generateImage(prompt: string, adventureId?: string): Promise<string | null> {
     try {
       const res = await fetch('/api/ai/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt, adventureId })
       });
       
       const data = await res.json();
       return data.image || null;
     } catch {
       return null;
+    }
+  },
+
+  // Generate epilogue based on full conversation history
+  async generateEpilogue(history: HistoryEntry[], context: GameState): Promise<EpilogueResponse> {
+    try {
+      const res = await fetch('/api/ai/epilogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ history, context })
+      });
+      
+      return await res.json();
+    } catch {
+      return {
+        epilogue_title: "The End",
+        epilogue_text: "And so the tale came to its end. What adventures await beyond, only time will tell.",
+        ending_type: "mysterious",
+        legacy: "Their story lives on in whispered legends.",
+        visual_prompt: "A weathered book closing on an epic tale"
+      };
     }
   }
 };
@@ -310,6 +342,7 @@ export const AdventureAPI = {
     inventory?: string[];
     status?: 'active' | 'completed' | 'abandoned';
     endingType?: 'victory' | 'death' | 'limit_reached';
+    lastImage?: string;
   }): Promise<Adventure> {
     const res = await fetch(`/api/adventures/${id}`, {
       method: 'PATCH',
@@ -401,6 +434,8 @@ export const AdventureAPI = {
       lastNarrative: lastTurn?.narrative,
       lastOptions: lastTurn?.options as string[] | undefined,
       lastAction: lastTurn?.playerAction,
+      // Use image URL endpoint instead of base64 (more efficient, cacheable)
+      lastImage: `/api/adventures/${adventure.id}/image`,
     };
   },
 };

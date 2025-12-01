@@ -1,4 +1,4 @@
-import { Book, Hourglass, Heart, Coins, Backpack } from 'lucide-react';
+import { Book, Hourglass, Heart, Coins, User } from 'lucide-react';
 
 interface GameHeaderProps {
   turn: number;
@@ -48,7 +48,7 @@ export function GameHeader({
           onClick={onShowInventory}
           className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[10px] font-bold text-gray-300 hover:text-white hover:bg-black/60 transition-all shadow-lg"
         >
-          <Backpack className="w-3 h-3" /> BAG
+          <User className="w-3 h-3" /> CHAR
         </button>
       </div>
     </div>
