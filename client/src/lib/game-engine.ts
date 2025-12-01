@@ -1,6 +1,7 @@
 import { CLASSES, ClassName, RaceName } from "./game-constants";
 
 export interface GameState {
+  id?: string; // Adventure ID (only for signed-in users)
   name: string;
   class: ClassName;
   race: RaceName;
@@ -9,12 +10,21 @@ export interface GameState {
   themeSeeds: string; // The random keywords or custom theme for display
   endgame: CampaignData | null;
   characterDescription: string;
-  history: any[];
+  history: HistoryEntry[];
   hp: number;
   gold: number;
   inventory: string[];
   turn: number;
   maxTurns: number;
+  // For resuming - last turn's display data
+  lastNarrative?: string;
+  lastOptions?: string[];
+  lastAction?: string;
+}
+
+export interface HistoryEntry {
+  role: 'user' | 'model';
+  parts: { text: string }[];
 }
 
 export interface CampaignData {
@@ -37,308 +47,360 @@ export interface TurnResponse {
   game_over: boolean;
 }
 
-// Configuration
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-const MODEL_TEXT = "gemini-2.0-flash";
-
-// Logging helper
-function logAI(type: string, startTime: number, success: boolean, details?: string) {
-  const elapsed = Date.now() - startTime;
-  const status = success ? "SUCCESS" : "FAIL";
-  const color = success ? "color: #22c55e; font-weight: bold" : "color: #ef4444; font-weight: bold";
-  console.log(
-    `%c[AI: ${type}] ${status} (${elapsed}ms)${details ? ` - ${details}` : ""}`,
-    color
-  );
+// Server-side adventure types
+export interface Adventure {
+  id: string;
+  userId: string;
+  characterName: string;
+  characterRace: string;
+  characterClass: string;
+  characterGender: string;
+  characterDescription: string | null;
+  campaignTitle: string | null;
+  campaignData: CampaignData | null;
+  themeSeeds: string | null;
+  currentHp: number;
+  gold: number;
+  inventory: string[];
+  turnCount: number;
+  maxTurns: number;
+  status: 'active' | 'completed' | 'abandoned';
+  endingType: 'victory' | 'death' | 'limit_reached' | null;
+  createdAt: string;
+  updatedAt: string;
+  lastPlayedAt: string;
 }
 
-export const API = {
-  async generateName(context: { gender: string, race: string, class: string }): Promise<string> {
-    const startTime = Date.now();
-    const type = "Name Generator";
-    
-    if (!API_KEY) {
-      logAI(type, startTime, true, "Using MOCK (no API key)");
-      return mockAPI.generateName(context);
-    }
+export interface AdventureTurn {
+  id: string;
+  adventureId: string;
+  turnNumber: number;
+  playerAction: string;
+  narrative: string;
+  visualPrompt: string | null;
+  hpAfter: number;
+  goldAfter: number;
+  inventoryAfter: string[];
+  options: string[];
+  createdAt: string;
+}
 
-    const prompt = `Generate a SINGLE creative fantasy name for a ${context.gender} ${context.race} ${context.class}. Output ONLY the name (e.g., "Thorgar"). No text like "Here is a name:".`;
-    
+
+export const API = {
+  // Generate character name via server
+  async generateName(context: { gender: string, race: string, class: string }): Promise<string> {
     try {
-      const text = await callGemini(prompt, false);
-      const name = text.replace(/["']/g, "").trim() || "Adventurer";
-      logAI(type, startTime, true, `Generated: "${name}"`);
-      return name;
-    } catch (e) {
-      logAI(type, startTime, false, String(e));
+      const res = await fetch('/api/ai/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(context)
+      });
+      
+      const data = await res.json();
+      return data.name || "Hero";
+    } catch {
       return "Hero";
     }
   },
 
-  async generateCampaign(context: any): Promise<CampaignData> {
-    const startTime = Date.now();
-    const type = "Campaign Architect";
-    
-    if (!API_KEY) {
-      logAI(type, startTime, true, "Using MOCK (no API key)");
-      return mockAPI.generateCampaign(context);
-    }
-
-    const prompt = `You are a master RPG Architect. Create a rich, 3-Act Campaign Structure and Backstories.
-    Player Name: "${context.name}".
-    Details: ${context.gender} ${context.race} ${context.class}.
-    Theme: "${context.customInstructions || 'dark fantasy adventure'}".
-    
-    Output JSON ONLY:
-    {
-        "title": "Campaign Title",
-        "act1": "The Setup & Inciting Incident (1 sentence)",
-        "act2": "The Twist & Rising Action (1 sentence)",
-        "act3": "The Climax & Final Boss (1 sentence)",
-        "possible_endings": ["Good Ending", "Bad Ending", "Twist Ending"],
-        "world_backstory": "1 short paragraph (3-4 sentences) describing the world.",
-        "character_backstory": "1 short paragraph (3-4 sentences) describing ${context.name}'s past and motivation."
-    }`;
-
+  // Generate campaign via server
+  async generateCampaign(context: { name: string; gender: string; race: string; class: string; customInstructions?: string }): Promise<CampaignData> {
     try {
-      const text = await callGemini(prompt, true);
-      let campaign = JSON.parse(text);
+      const res = await fetch('/api/ai/campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(context)
+      });
       
-      // Handle array response (sometimes API returns [{...}] instead of {...})
-      if (Array.isArray(campaign)) {
-        campaign = campaign[0];
+      const data = await res.json();
+      
+      if (!data.title || !data.act1) {
+        throw new Error("Invalid campaign");
       }
       
-      if (!campaign || !campaign.title || !campaign.act1 || !campaign.possible_endings) {
-        logAI(type, startTime, false, "Invalid campaign structure");
-        return mockAPI.generateCampaign(context);
-      }
-      
-      logAI(type, startTime, true, `Campaign: "${campaign.title}"`);
-      return campaign;
-    } catch (e) {
-      logAI(type, startTime, false, String(e));
-      return mockAPI.generateCampaign(context);
+      return data;
+    } catch {
+      // Return fallback
+      return {
+        title: "The Shadow of the Void",
+        act1: "You awaken in a cold, dark cell with no memory of how you arrived.",
+        act2: "A mysterious artifact whispers to you, promising power at a terrible cost.",
+        act3: "You must choose between saving the realm or becoming its new tyrant.",
+        possible_endings: ["Hero", "Tyrant", "Martyr"],
+        world_backstory: "The world of Aethelgard is crumbling under the weight of an ancient curse.",
+        character_backstory: `${context.name} was once a respected ${context.class} before the darkness fell.`
+      };
     }
   },
 
-  async generateVisuals(context: any): Promise<string> {
-    const startTime = Date.now();
-    const type = "Visual Designer";
-    
-    if (!API_KEY) {
-      logAI(type, startTime, true, "Using MOCK (no API key)");
-      return mockAPI.generateVisuals(context);
-    }
-
-    const prompt = `Generate a concise (max 25 words) visual description for a dark fantasy RPG character. Role: ${context.gender} ${context.race} ${context.class}. Requirements: Describe physique, hair, eyes, and clothing/armor. Output: Just the description text.`;
-    
+  // Generate character visuals via server
+  async generateVisuals(context: { gender: string; race: string; class: string }): Promise<string> {
     try {
-      const result = await callGemini(prompt, false);
-      logAI(type, startTime, true, `Description length: ${result.length} chars`);
-      return result;
-    } catch (e) {
-      logAI(type, startTime, false, String(e));
+      const res = await fetch('/api/ai/visuals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(context)
+      });
+      
+      const data = await res.json();
+      return data.description || `${context.gender} ${context.race} ${context.class}`;
+    } catch {
       return `${context.gender} ${context.race} ${context.class}`;
     }
   },
 
-  // Main chat - returns narrative/options but NOT the image (image is separate)
-  async chat(history: any[], context: GameState, userInput?: string): Promise<TurnResponse> {
-    const startTime = Date.now();
-    const type = "Dungeon Master";
-    
-    if (!API_KEY) {
-      logAI(type, startTime, true, "Using MOCK (no API key)");
-      return mockAPI.chat(history, context);
-    }
-    
-    const turnCount = context.turn + 1;
-    const isLimit = turnCount >= context.maxTurns;
-
-    if (isLimit) {
-      logAI(type, startTime, true, "Turn limit reached - using limit message");
-      return mockAPI.chat(history, context);
-    }
-
-    if (!context.endgame || !context.endgame.possible_endings) {
-      logAI(type, startTime, false, "Missing campaign data");
-      return mockAPI.chat(history, context);
-    }
-
-    const c = context.endgame;
-    const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${context.inventory.join(', ')}. Current HP: ${context.hp}.`;
-
+  // Main chat - returns narrative/options via server
+  async chat(history: HistoryEntry[], context: GameState, userInput?: string): Promise<TurnResponse> {
     try {
-      let geminiHistory = history.map(h => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: h.parts
-      }));
-
-      if (geminiHistory.length === 0 && userInput) {
-        geminiHistory = [{ role: 'user', parts: [{ text: userInput }] }];
-      } else if (geminiHistory.length === 0) {
-        geminiHistory = [{ role: 'user', parts: [{ text: `Begin the adventure. ${c.act1}` }] }];
-      }
-
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_TEXT}:generateContent?key=${API_KEY}`;
-      const res = await fetch(url, {
+      const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: geminiHistory,
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { responseMimeType: "application/json" }
-        })
+        credentials: 'include',
+        body: JSON.stringify({ history, context, userInput })
       });
-
-      const data = await res.json();
       
-      if (data.error) {
-        logAI(type, startTime, false, data.error.message);
-        throw new Error(data.error.message || "API error");
+      if (res.status === 429) {
+        const data = await res.json();
+        return {
+          narrative: data.message || "Daily limit reached. Sign in for unlimited play!",
+          hp_current: context.hp,
+          gold: context.gold,
+          inventory: context.inventory,
+          options: [],
+          game_over: true
+        };
       }
       
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) {
-        logAI(type, startTime, false, "No content in response");
-        throw new Error("No content in response");
+      if (res.status === 403) {
+        const data = await res.json();
+        return {
+          narrative: data.narrative || "Your free trial has ended.",
+          hp_current: context.hp,
+          gold: context.gold,
+          inventory: context.inventory,
+          options: [],
+          game_over: true
+        };
       }
       
-      const response = JSON.parse(text) as TurnResponse;
-      logAI(type, startTime, true, `Turn ${turnCount}, HP: ${response.hp_current}, Options: ${response.options?.length || 0}`);
-
-      return response;
-
-    } catch (e) {
-      logAI(type, startTime, false, String(e));
-      return mockAPI.chat(history, context);
+      return await res.json();
+      
+    } catch {
+      return {
+        narrative: "The mists of fate swirl around you...",
+        hp_current: context.hp,
+        gold: context.gold,
+        inventory: context.inventory,
+        options: ["Continue cautiously", "Rest", "Look around"],
+        game_over: false
+      };
     }
   },
 
-  // Separate image generation - called asynchronously (non-blocking)
+  // Image generation via server
   async generateImage(prompt: string): Promise<string | null> {
-    const startTime = Date.now();
-    const type = "Image Generator (Imagen 4.0)";
-    
-    if (!API_KEY) {
-      logAI(type, startTime, false, "No API key");
-      return null;
-    }
-    
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${API_KEY}`;
-      const finalPrompt = `${prompt}, cinematic lighting, 8k, masterpiece, detailed, ${Date.now()}`;
-      
-      const res = await fetch(url, {
+      const res = await fetch('/api/ai/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: finalPrompt }],
-          parameters: { sampleCount: 1, aspectRatio: "1:1" }
-        })
+        credentials: 'include',
+        body: JSON.stringify({ prompt })
       });
       
       const data = await res.json();
-      
-      if (data.error) {
-        logAI(type, startTime, false, data.error.message || "API error");
-        return null;
-      }
-      
-      const imageData = data.predictions?.[0]?.bytesBase64Encoded;
-      if (imageData) {
-        logAI(type, startTime, true, `Image size: ${Math.round(imageData.length / 1024)}KB`);
-        return imageData;
-      } else {
-        logAI(type, startTime, false, "No image data in response");
-        return null;
-      }
-    } catch (e) {
-      logAI(type, startTime, false, String(e));
+      return data.image || null;
+    } catch {
       return null;
     }
   }
 };
 
-// Helper for Gemini Text
-async function callGemini(prompt: string, jsonMode = false): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_TEXT}:generateContent?key=${API_KEY}`;
-  const body: any = {
-    contents: [{ parts: [{ text: prompt }] }]
-  };
-  if (jsonMode) {
-    body.generationConfig = { responseMimeType: "application/json" };
-  }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  
-  const data = await res.json();
-  
-  if (data.error) {
-    throw new Error(data.error.message || "Gemini API error");
-  }
-  
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-}
+// ============== Adventure Persistence API (for signed-in users) ==============
 
-// MOCK FALLBACK
-const MOCK_DELAY = 1000;
-const mockAPI = {
-  async generateName(context: any): Promise<string> {
-    await new Promise(r => setTimeout(r, 800));
-    const names = ["Thorgar", "Elara", "Kaelen", "Nyx", "Valen", "Sylas", "Aria", "Dorn"];
-    return names[Math.floor(Math.random() * names.length)];
+export const AdventureAPI = {
+  // List user's adventures
+  async listAdventures(): Promise<{ adventures: Adventure[]; isPremium: boolean; limit: number | null }> {
+    const res = await fetch('/api/adventures', { credentials: 'include' });
+    if (!res.ok) {
+      throw new Error('Failed to fetch adventures');
+    }
+    return res.json();
   },
 
-  async generateCampaign(context: any): Promise<CampaignData> {
-    await new Promise(r => setTimeout(r, MOCK_DELAY));
-    return {
-      title: "The Shadow of the Void",
-      act1: "You awaken in a cold, dark cell with no memory of how you arrived.",
-      act2: "A mysterious artifact whispers to you, promising power at a terrible cost.",
-      act3: "You must choose between saving the realm or becoming its new tyrant.",
-      possible_endings: ["Hero", "Tyrant", "Martyr"],
-      world_backstory: "The world of Aethelgard is crumbling under the weight of an ancient curse.",
-      character_backstory: `${context.name} was once a respected ${context.class} before the darkness fell.`
-    };
+  // Get active adventure (for "Continue" button)
+  async getActiveAdventure(): Promise<{ adventure: Adventure | null; turns: AdventureTurn[] }> {
+    const res = await fetch('/api/adventures/active', { credentials: 'include' });
+    if (!res.ok) {
+      throw new Error('Failed to fetch active adventure');
+    }
+    return res.json();
   },
 
-  async generateVisuals(context: any): Promise<string> {
-    await new Promise(r => setTimeout(r, 500));
-    return `A ${context.gender} ${context.race} ${context.class} standing in a dimly lit dungeon.`;
+  // Resume a specific adventure with its turns
+  async resumeAdventure(id: string): Promise<{ adventure: Adventure; turns: AdventureTurn[] }> {
+    const res = await fetch(`/api/adventures/${id}/resume`, { credentials: 'include' });
+    if (!res.ok) {
+      throw new Error('Failed to resume adventure');
+    }
+    return res.json();
   },
 
-  async chat(history: any[], context: GameState): Promise<TurnResponse> {
-    await new Promise(r => setTimeout(r, MOCK_DELAY));
+  // Create a new adventure
+  async createAdventure(gameState: GameState): Promise<Adventure> {
+    const res = await fetch('/api/adventures', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        characterName: gameState.name,
+        characterRace: gameState.race,
+        characterClass: gameState.class,
+        characterGender: gameState.gender,
+        characterDescription: gameState.characterDescription,
+        campaignTitle: gameState.endgame?.title || null,
+        campaignData: gameState.endgame,
+        themeSeeds: gameState.themeSeeds,
+        currentHp: gameState.hp,
+        gold: gameState.gold,
+        inventory: gameState.inventory,
+        turnCount: 0,
+        maxTurns: -1, // Unlimited for signed-in users
+      }),
+    });
     
-    const turnCount = context.turn + 1;
-    const isLimit = turnCount >= context.maxTurns;
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to create adventure');
+    }
+    return res.json();
+  },
+
+  // Save a turn
+  async saveTurn(adventureId: string, turnData: {
+    playerAction: string;
+    narrative: string;
+    visualPrompt?: string;
+    hpAfter: number;
+    goldAfter: number;
+    inventoryAfter: string[];
+    options: string[];
+  }): Promise<{ turn: AdventureTurn; turnNumber: number }> {
+    const res = await fetch(`/api/adventures/${adventureId}/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(turnData),
+    });
     
-    if (isLimit) {
-      return {
-        narrative: `**Turn Limit Reached (Free Version)**\n\nThe mists of fate obscure your vision. To continue your journey and unlock unlimited turns, you must prove your worth (Login/Upgrade). \n\n*This is the end of the free trial.*`,
-        hp_current: context.hp,
-        gold: context.gold,
-        inventory: context.inventory,
-        options: ["End Trial"],
-        game_over: true,
-        visual_prompt: "A locked gate shrouded in mist"
-      };
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to save turn');
+    }
+    return res.json();
+  },
+
+  // Update adventure (status, etc.)
+  async updateAdventure(id: string, updates: {
+    currentHp?: number;
+    gold?: number;
+    inventory?: string[];
+    status?: 'active' | 'completed' | 'abandoned';
+    endingType?: 'victory' | 'death' | 'limit_reached';
+  }): Promise<Adventure> {
+    const res = await fetch(`/api/adventures/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(updates),
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to update adventure');
+    }
+    return res.json();
+  },
+
+  // Delete an adventure
+  async deleteAdventure(id: string): Promise<void> {
+    const res = await fetch(`/api/adventures/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    
+    if (!res.ok) {
+      throw new Error('Failed to delete adventure');
+    }
+  },
+
+  // Restart an adventure (delete all turns and reset to turn 0)
+  async restartAdventure(id: string): Promise<Adventure> {
+    const res = await fetch(`/api/adventures/${id}/restart`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to restart adventure');
+    }
+    const data = await res.json();
+    return data.adventure;
+  },
+
+  // Convert Adventure + Turns to GameState
+  adventureToGameState(adventure: Adventure, turns: AdventureTurn[]): GameState {
+    // Reconstruct history from turns
+    const history: HistoryEntry[] = [];
+    for (const turn of turns) {
+      // User message
+      history.push({
+        role: 'user',
+        parts: [{ text: turn.playerAction }],
+      });
+      // Model response (simplified, without visual_prompt)
+      history.push({
+        role: 'model',
+        parts: [{
+          text: JSON.stringify({
+            narrative: turn.narrative,
+            hp_current: turn.hpAfter,
+            gold: turn.goldAfter,
+            inventory: turn.inventoryAfter,
+            options: turn.options,
+            game_over: false,
+          }),
+        }],
+      });
     }
 
+    // Get the last turn's data for immediate display on resume
+    const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+
     return {
-      narrative: `You venture deeper into the darkness. The air grows colder. (Turn ${turnCount})\n\n*"What do you seek?"* a voice echoes.`,
-      hp_current: context.hp,
-      gold: context.gold + Math.floor(Math.random() * 5),
-      inventory: context.inventory,
-      options: ["Search the area", "Call out", "Draw weapon"],
-      game_over: false,
-      visual_prompt: "A dark corridor with glowing runes"
+      id: adventure.id,
+      name: adventure.characterName,
+      class: adventure.characterClass as ClassName,
+      race: adventure.characterRace as RaceName,
+      gender: adventure.characterGender as 'Male' | 'Female',
+      customInstructions: adventure.themeSeeds || '',
+      themeSeeds: adventure.themeSeeds || '',
+      endgame: adventure.campaignData,
+      characterDescription: adventure.characterDescription || '',
+      history,
+      hp: adventure.currentHp,
+      gold: adventure.gold,
+      inventory: adventure.inventory as string[],
+      turn: adventure.turnCount,
+      maxTurns: adventure.maxTurns,
+      // Last turn data for immediate display on resume
+      lastNarrative: lastTurn?.narrative,
+      lastOptions: lastTurn?.options as string[] | undefined,
+      lastAction: lastTurn?.playerAction,
     };
-  }
+  },
 };

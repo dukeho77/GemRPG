@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GemRPG: Campaign</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&display=swap"
+        rel="stylesheet">
+
+    <!-- Lucide Icons (SVGs) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'fantasy': ['Cinzel', 'serif'],
+                        'body': ['Inter', 'sans-serif'],
+                        'story': ['Merriweather', 'serif'],
+                    },
+                    colors: {
+                        'void': '#09090b',
+                        'void-light': '#18181b',
+                        'mystic': '#8b5cf6',
+                        'gold': '#fbbf24',
+                        'blood': '#ef4444',
+                        'surface': '#27272a'
+                    },
+                    boxShadow: {
+                        'card-overlay': 'inset 0 -180px 100px -20px rgba(0,0,0,0.95)',
+                        'top-gradient': 'inset 0 60px 40px -20px rgba(0,0,0,0.8)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        * {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        body {
+            background-color: #09090b;
+            color: #e4e4e7;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
+        }
+
+        .prose p {
+            margin-bottom: 0.75em;
+            line-height: 1.6;
+        }
+
+        .prose strong {
+            color: #fbbf24;
+            font-weight: 700;
+        }
+
+        .prose em {
+            color: #a78bfa;
+            font-style: italic;
+        }
+
+        .glass-input {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .glass-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        .dice-wrap {
+            perspective: 800px;
+            width: 50px;
+            height: 50px;
+            display: none;
+            pointer-events: none;
+        }
+
+        .dice-cube {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 1s;
+            animation: spinDice 2s infinite linear;
+        }
+
+        .face {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: #4c1d95;
+            border: 1px solid #fbbf24;
+            color: #fbbf24;
+            font-family: 'Cinzel', serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.6);
+            opacity: 0.95;
+        }
+
+        .f-front {
+            transform: rotateY(0deg) translateZ(25px);
+        }
+
+        .f-back {
+            transform: rotateY(180deg) translateZ(25px);
+        }
+
+        .f-right {
+            transform: rotateY(90deg) translateZ(25px);
+        }
+
+        .f-left {
+            transform: rotateY(-90deg) translateZ(25px);
+        }
+
+        .f-top {
+            transform: rotateX(90deg) translateZ(25px);
+        }
+
+        .f-bottom {
+            transform: rotateX(-90deg) translateZ(25px);
+        }
+
+        @keyframes spinDice {
+            0% {
+                transform: rotateX(0deg) rotateY(0deg);
+            }
+
+            100% {
+                transform: rotateX(360deg) rotateY(360deg);
+            }
+        }
+
+        .blur-game {
+            filter: blur(8px) brightness(0.6);
+            transition: filter 1s ease;
+        }
+    </style>
+</head>
+
+<body class="h-[100dvh] w-screen font-body bg-void text-gray-200 flex flex-col">
+
+    <div id="app" class="relative z-10 h-full w-full max-w-[1400px] mx-auto flex flex-col md:flex-row md:p-4 gap-4">
+
+        <!-- CREATION SCREEN -->
+        <div id="screen-creation" class="absolute inset-0 z-50 bg-black flex flex-col overflow-y-auto no-scrollbar">
+            <div
+                class="min-h-full flex items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1519074069444-1ba4fff66d16?q=80&w=2574')] bg-cover bg-center">
+                <div class="absolute inset-0 bg-black/85 backdrop-blur-sm"></div>
+                <div
+                    class="relative w-full max-w-xl bg-void-light/95 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-white/10 shadow-2xl">
+                    <div class="text-center mb-6">
+                        <i data-lucide="crown" class="w-10 h-10 text-gold mx-auto mb-3"></i>
+                        <h1
+                            class="font-fantasy text-3xl text-transparent bg-clip-text bg-gradient-to-r from-gold to-yellow-600 mb-1">
+                            GemRPG</h1>
+                        <p class="text-gray-400 text-[10px] tracking-[0.2em] uppercase">Campaign Edition</p>
+                    </div>
+
+                    <div class="space-y-5">
+                        <div class="flex flex-col gap-4">
+                            <div>
+                                <label class="text-[10px] uppercase text-gray-500 font-bold mb-1 block ml-1">Hero
+                                    Name</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="char-name"
+                                        class="flex-1 bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-mystic outline-none"
+                                        placeholder="Enter name or generate...">
+                                    <button id="btn-gen-name" onclick="game.generateName()"
+                                        class="px-3 bg-gray-800 border border-gray-700 rounded-lg text-mystic hover:text-white transition-colors relative">
+                                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label
+                                    class="text-[10px] uppercase text-gray-500 font-bold mb-1 block ml-1">Gender</label>
+                                <div class="flex bg-black/50 rounded-lg border border-gray-700 p-1">
+                                    <button onclick="game.setGender('Male', this)"
+                                        class="flex-1 rounded py-2 text-xs font-bold text-gray-400 hover:text-white transition-colors gender-btn"
+                                        data-val="Male">Male</button>
+                                    <button onclick="game.setGender('Female', this)"
+                                        class="flex-1 rounded py-2 text-xs font-bold text-gray-400 hover:text-white transition-colors gender-btn"
+                                        data-val="Female">Female</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3-Column Grid for Class -->
+                        <div>
+                            <label class="text-[10px] uppercase text-gray-500 font-bold mb-1 block ml-1">Class</label>
+                            <div id="class-select" class="grid grid-cols-3 gap-1.5"></div>
+                        </div>
+
+                        <!-- 3-Column Grid for Lineage -->
+                        <div>
+                            <label class="text-[10px] uppercase text-gray-500 font-bold mb-1 block ml-1">Lineage</label>
+                            <div id="race-select" class="grid grid-cols-3 gap-1.5"></div>
+                        </div>
+
+                        <div>
+                            <label
+                                class="text-[10px] uppercase text-gold font-bold mb-1 block ml-1 flex justify-between">
+                                <span>Campaign Seed</span> <span
+                                    class="text-gray-600 font-normal normal-case opacity-60">(Optional - Leave empty for
+                                    Random)</span>
+                            </label>
+                            <textarea id="custom-prompt" rows="2"
+                                class="w-full bg-black/50 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white focus:border-gold outline-none resize-none"
+                                placeholder="E.g., A cyberpunk noir mystery... (Or leave blank to let Fate decide)"></textarea>
+                        </div>
+
+                        <div class="pt-4 border-t border-gray-700/50">
+                            <div id="stats-preview"
+                                class="flex justify-center text-[10px] text-gold font-mono mb-3 h-3"></div>
+                            <button id="btn-start" onclick="game.startGame()" disabled
+                                class="w-full bg-mystic hover:bg-indigo-600 text-white font-fantasy font-bold py-3 rounded-xl text-sm shadow-glow disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                                <span id="btn-text">Forge Destiny</span>
+                                <i id="btn-icon" data-lucide="arrow-right" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME SCREEN WRAPPER -->
+        <div id="screen-game"
+            class="hidden flex-1 w-full h-full flex-col md:flex-row overflow-hidden relative transition-all duration-700">
+
+            <!-- VISUAL CARD (Top 75% on Mobile) -->
+            <div
+                class="flex-none w-full h-[75dvh] md:w-96 md:h-full flex flex-col bg-black relative group md:border-r md:border-white/10">
+
+                <!-- Image Wrapper -->
+                <div class="relative w-full h-full overflow-hidden bg-void-light">
+                    <div id="scene-loader"
+                        class="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden transition-opacity duration-300">
+                        <div class="animate-spin text-mystic"><i data-lucide="loader-2" class="w-8 h-8"></i></div>
+                    </div>
+                    <img id="scene-img" src="" class="w-full h-full object-cover transition-all duration-1000 opacity-0"
+                        onerror="this.style.opacity=0">
+
+                    <!-- Shadows -->
+                    <div class="absolute inset-0 shadow-card-overlay pointer-events-none z-10"></div>
+                    <div class="absolute inset-0 shadow-top-gradient pointer-events-none z-10"></div>
+
+                    <!-- HUD -->
+                    <div class="absolute top-0 left-0 right-0 p-4 z-30 flex justify-between items-start">
+                        <div class="flex items-center gap-2">
+                            <button onclick="$('lore-modal').classList.remove('hidden')"
+                                class="flex items-center justify-center w-8 h-8 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-mystic hover:text-white hover:bg-mystic/20 transition-all shadow-lg"
+                                title="Read Lore">
+                                <i data-lucide="book" class="w-4 h-4"></i>
+                            </button>
+                            <div
+                                class="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[10px] font-bold text-gray-300 shadow-lg">
+                                <i data-lucide="hourglass" class="w-3 h-3"></i> <span id="hud-turn">Turn 0</span>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-2 items-end">
+                            <div class="flex items-center gap-2">
+                                <div
+                                    class="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-red-500/20 text-[10px] font-bold text-red-400 shadow-lg">
+                                    <i data-lucide="heart" class="w-3 h-3 fill-current"></i> <span id="hud-hp">--</span>
+                                </div>
+                                <div
+                                    class="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-yellow-500/20 text-[10px] font-bold text-gold shadow-lg">
+                                    <i data-lucide="coins" class="w-3 h-3 fill-current"></i> <span id="hud-gp">--</span>
+                                </div>
+                            </div>
+                            <button onclick="$('inventory-modal').classList.remove('hidden')"
+                                class="flex items-center gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 text-[10px] font-bold text-gray-300 hover:text-white hover:bg-black/60 transition-all shadow-lg">
+                                <i data-lucide="backpack" class="w-3 h-3"></i> BAG
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Controls -->
+                    <div class="absolute bottom-0 left-0 right-0 p-4 z-30 flex flex-col gap-2">
+                        <div id="typing-indicator"
+                            class="h-3 flex items-center gap-1.5 text-[10px] text-white/70 opacity-0 transition-opacity pl-1">
+                            <span class="animate-pulse w-1.5 h-1.5 bg-mystic rounded-full"></span> DM is writing...
+                        </div>
+                        <div id="actions-area" class="flex flex-col gap-2 w-full pb-1"></div>
+                        <div id="input-container" class="relative flex items-center mt-1">
+                            <input type="text" id="player-input"
+                                class="glass-input w-full rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none shadow-lg"
+                                placeholder="Or type your action..." autocomplete="off">
+                            <button onclick="game.handleInput()"
+                                class="absolute right-1.5 p-1 text-white/80 hover:text-white hover:scale-110 transition-transform"><i
+                                    data-lucide="arrow-right-circle" class="w-5 h-5"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Desktop Inventory -->
+                <div class="hidden md:block flex-1 bg-void p-4 overflow-y-auto border-t border-white/5">
+                    <h3 class="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Inventory</h3>
+                    <ul id="desktop-inv" class="space-y-2 text-xs text-gray-400"></ul>
+                </div>
+            </div>
+
+            <!-- TEXT AREA -->
+            <main class="flex-1 flex flex-col min-h-0 bg-void relative">
+                <div id="narrative-display" class="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col gap-3 no-scrollbar">
+                    <div id="last-action-container" class="opacity-0 transition-opacity duration-500">
+                        <p class="text-[10px] uppercase tracking-widest text-mystic mb-0.5">You</p>
+                        <p id="player-last-text"
+                            class="text-xs text-gray-500 italic font-body border-l-2 border-mystic/30 pl-2"></p>
+                    </div>
+                    <div id="dm-narrative-container" class="flex-1 fade-in">
+                        <div id="dm-text"
+                            class="prose prose-sm prose-invert max-w-none font-story text-gray-300 text-xs leading-relaxed">
+                            <p class="italic text-gray-600">The world is forming...</p>
+                        </div>
+                    </div>
+                </div>
+                <div id="dice-overlay"
+                    class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
+                    <div class="dice-wrap" id="dice-3d">
+                        <div class="dice-cube">
+                            <div class="face f-front">20</div>
+                            <div class="face f-back">1</div>
+                            <div class="face f-right">8</div>
+                            <div class="face f-left">12</div>
+                            <div class="face f-top">19</div>
+                            <div class="face f-bottom">3</div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- GAME OVER OVERLAY -->
+        <div id="game-over-modal"
+            class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm fade-in p-4">
+            <div
+                class="text-center p-8 w-full max-w-sm bg-void-light/90 border border-blood/30 rounded-2xl shadow-2xl shadow-blood/10">
+                <i data-lucide="skull" class="w-16 h-16 text-blood mx-auto mb-4 animate-pulse"></i>
+                <h2 class="font-fantasy text-4xl text-white mb-2 tracking-widest">FATE SEALED</h2>
+                <p class="text-gray-400 text-xs mb-8 italic">Your legend ends here...</p>
+                <div class="space-y-3">
+                    <button onclick="game.restartGame()"
+                        class="w-full py-3.5 rounded-xl bg-gradient-to-r from-blood to-red-900 text-white font-bold text-sm transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Resurrect (Retry)
+                    </button>
+                    <button onclick="game.resetToMain()"
+                        class="w-full py-3.5 rounded-xl bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:border-white font-bold text-sm transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="home" class="w-4 h-4"></i> Main Menu
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- INVENTORY MODAL -->
+        <div id="inventory-modal"
+            class="hidden absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
+                <h2 class="font-fantasy text-xl text-gold">Inventory</h2>
+                <button onclick="$('inventory-modal').classList.add('hidden')" class="text-white"><i data-lucide="x"
+                        class="w-5 h-5"></i></button>
+            </div>
+            <ul id="mobile-inv" class="space-y-3 text-sm text-gray-300"></ul>
+        </div>
+
+        <!-- LORE MODAL -->
+        <div id="lore-modal"
+            class="hidden absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar">
+            <div class="flex justify-between items-center mb-6 border-b border-gray-800 pb-3">
+                <h2 class="font-fantasy text-xl text-mystic">Tales of Origin</h2>
+                <button onclick="$('lore-modal').classList.add('hidden')" class="text-white"><i data-lucide="x"
+                        class="w-5 h-5"></i></button>
+            </div>
+            <div class="overflow-y-auto space-y-6 max-h-[80vh] no-scrollbar">
+                <div>
+                    <h3 class="text-xs uppercase tracking-widest text-gold mb-2 font-bold">The World</h3>
+                    <p id="lore-world"
+                        class="text-sm text-gray-300 font-story leading-relaxed italic border-l-2 border-white/10 pl-3">
+                        Generating...</p>
+                </div>
+                <div>
+                    <h3 class="text-xs uppercase tracking-widest text-mystic mb-2 font-bold">The Hero</h3>
+                    <p id="lore-character"
+                        class="text-sm text-gray-300 font-story leading-relaxed italic border-l-2 border-white/10 pl-3">
+                        Generating...</p>
+                </div>
+                <div>
+                    <h3 class="text-xs uppercase tracking-widest text-gray-500 mb-2 font-bold">Seeds of Fate</h3>
+                    <p id="lore-seeds" class="text-xs text-gray-400 font-mono tracking-wide">...</p>
+                </div>
+
+                <div class="pt-6 border-t border-gray-800 space-y-3">
+                    <button
+                        onclick="if(confirm('Restart this adventure from the beginning?')) { $('lore-modal').classList.add('hidden'); game.restartGame(); }"
+                        class="w-full py-3 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Restart Chapter
+                    </button>
+                    <button onclick="if(confirm('Return to main menu?')) game.resetToMain()"
+                        class="w-full py-3 rounded-lg bg-transparent border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="home" class="w-4 h-4"></i> Main Menu
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const CONFIG = { apiKey: "", modelText: "gemini-2.5-flash-preview-09-2025", modelImage: "imagen-4.0-generate-001" };
+
+        const CLASSES = {
+            'Warrior': { hp: 30, items: ['Greatsword', 'Chainmail', 'Potion'] },
+            'Paladin': { hp: 28, items: ['Longsword', 'Shield', 'Holy Symbol'] },
+            'Barbarian': { hp: 35, items: ['Greataxe', 'Handaxe', 'Javelins'] },
+            'Ranger': { hp: 26, items: ['Longbow', 'Shortswords', 'Cloak'] },
+            'Rogue': { hp: 20, items: ['Daggers', 'Cloak', 'Lockpicks'] },
+            'Mage': { hp: 16, items: ['Staff', 'Robes', 'Tome'] },
+            'Sorcerer': { hp: 18, items: ['Arcane Focus', 'Dagger', 'Robes'] },
+            'Warlock': { hp: 20, items: ['Dagger', 'Eldritch Eye', 'Leather Armor'] },
+            'Cleric': { hp: 24, items: ['Mace', 'Shield', 'Holy Symbol'] },
+            'Druid': { hp: 24, items: ['Scimitar', 'Wooden Shield', 'Holly'] },
+            'Bard': { hp: 22, items: ['Lute', 'Rapier', 'Dagger'] },
+            'Monk': { hp: 24, items: ['Staff', 'Darts', 'Meditation Beads'] }
+        };
+
+        const RACES = {
+            'Human': 'Versatile', 'Elf': 'Keen', 'Dwarf': 'Resilient',
+            'Halfling': 'Lucky', 'Dragonborn': 'Strong', 'Gnome': 'Clever',
+            'Half-Orc': 'Relentless', 'Tiefling': 'Charismatic', 'Aasimar': 'Divine'
+        };
+
+        const RPG_KEYWORDS = ["Abyss", "Arcane", "Artifact", "Ash", "Bane", "Bastion", "Beast", "Betrayal", "Blade", "Blood", "Bone", "Chaos", "Chronicle", "Citadel", "Clockwork", "Covenant", "Crimson", "Crown", "Crypt", "Crystal", "Curse", "Darkness", "Dawn", "Demon", "Destiny", "Divine", "Doom", "Dragon", "Dread", "Dream", "Dungeon", "Dusk", "Echo", "Eclipse", "Elder", "Ember", "Empire", "Enigma", "Eternal", "Exile", "Fable", "Fate", "Flame", "Forbidden", "Forest", "Forsaken", "Frost", "Ghost", "Gloom", "Glory", "God", "Gold", "Grave", "Grimoire", "Guardian", "Haven", "Heart", "Hell", "Hero", "Hollow", "Honor", "Hope", "Ice", "Immortal", "Inferno", "Iron", "Ivory", "Jewel", "Journey", "Keep", "King", "Knight", "Legend", "Lich", "Light", "Lord", "Lost", "Magic", "Mana", "Maze", "Memory", "Moon", "Myth", "Necromancer", "Night", "Nightmare", "Oath", "Oblivion", "Omen", "Oracle", "Phantom", "Plague", "Portal", "Power", "Prophecy", "Pyre", "Queen", "Quest", "Realm", "Rebellion"];
+
+        const $ = (id) => document.getElementById(id);
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+        const API = {
+            async generateName(context) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelText}:generateContent?key=${CONFIG.apiKey}`;
+                const prompt = `Generate a SINGLE creative fantasy name for a ${context.gender} ${context.race} ${context.class}. 
+                Output ONLY the name (e.g., "Thorgar"). No text like "Here is a name:".`;
+
+                try {
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+                    const data = await res.json();
+                    let name = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Adventurer";
+                    return name.replace(/["']/g, "");
+                } catch (e) {
+                    console.error("Name Gen Error", e);
+                    return "Hero";
+                }
+            },
+
+            async generateCampaign(context) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelText}:generateContent?key=${CONFIG.apiKey}`;
+                // Explicitly use the generated name in the prompt
+                const prompt = `You are a master RPG Architect. Create a rich, 3-Act Campaign Structure and Backstories.
+                Player Name: "${context.name}".
+                Details: ${context.gender} ${context.race} ${context.class}.
+                Theme: "${context.customInstructions}".
+                
+                Output JSON ONLY:
+                {
+                    "title": "Campaign Title",
+                    "act1": "The Setup & Inciting Incident (1 sentence)",
+                    "act2": "The Twist & Rising Action (1 sentence)",
+                    "act3": "The Climax & Final Boss (1 sentence)",
+                    "possible_endings": ["Good Ending", "Bad Ending", "Twist Ending"],
+                    "world_backstory": "1 short paragraph (3-4 sentences) describing the world.",
+                    "character_backstory": "1 short paragraph (3-4 sentences) describing ${context.name}'s past and motivation."
+                }`;
+
+                try {
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } }) });
+                    return JSON.parse((await res.json()).candidates[0].content.parts[0].text);
+                } catch (e) { return { title: "Unknown", act1: "Start.", act2: "Middle.", act3: "End.", possible_endings: ["Done"], world_backstory: "A mystery.", character_backstory: "A stranger." }; }
+            },
+            async generateVisuals(context) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelText}:generateContent?key=${CONFIG.apiKey}`;
+                const prompt = `Generate a concise (max 25 words) visual description for a dark fantasy RPG character. Role: ${context.gender} ${context.race} ${context.class}. Requirements: Describe physique, hair, eyes, and clothing/armor. Output: Just the description text.`;
+                try {
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+                    return (await res.json()).candidates[0].content.parts[0].text;
+                } catch (e) { return `${context.gender} ${context.race} ${context.class}`; }
+            },
+            async chat(history, context) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelText}:generateContent?key=${CONFIG.apiKey}`;
+                const c = context.endgame;
+                const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${context.inventory.join(', ')}.`;
+                try {
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify({ contents: history, systemInstruction: { parts: [{ text: systemPrompt }] }, generationConfig: { responseMimeType: "application/json" } }) });
+                    return JSON.parse((await res.json()).candidates[0].content.parts[0].text);
+                } catch (e) { console.error(e); return { narrative: "Error...", hp_current: context.hp, gold: 0, inventory: [], options: ["Retry"] }; }
+            },
+            async image(prompt) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelImage}:predict?key=${CONFIG.apiKey}`;
+                try {
+                    const finalPrompt = `${prompt}, cinematic lighting, 8k, masterpiece, detailed, ${Date.now()}`;
+                    const res = await fetch(url, { method: 'POST', body: JSON.stringify({ instances: [{ prompt: finalPrompt }], parameters: { sampleCount: 1, aspectRatio: "1:1" } }) });
+                    return (await res.json()).predictions?.[0]?.bytesBase64Encoded;
+                } catch (e) { return null; }
+            }
+        };
+
+        class Game {
+            constructor() {
+                // Set Defaults here
+                this.state = { name: '', class: 'Warrior', race: 'Human', gender: 'Male', customInstructions: '', endgame: null, characterDescription: '', history: [], hp: 0, gold: 10, inventory: [], turn: 0 };
+                this.busy = false;
+            }
+
+            init() {
+                this.renderCreation();
+                lucide.createIcons();
+                // Pre-select visuals
+                this.highlightPreselection();
+            }
+
+            setGender(val, btn) { this.state.gender = val; document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('bg-mystic', 'text-white')); btn.classList.add('bg-mystic', 'text-white'); this.updatePreview(); }
+
+            renderCreation() {
+                const mkBtn = (txt, parent, key) => {
+                    const b = document.createElement('button');
+                    b.className = 'p-2 border border-gray-700 bg-void-light rounded text-[10px] text-gray-400 font-bold hover:border-mystic hover:text-white transition-colors text-center uppercase tracking-wide truncate';
+                    b.innerHTML = txt;
+                    b.dataset.val = txt; // Store value for easy lookup
+                    b.onclick = () => {
+                        this.state[key] = txt;
+                        Array.from(parent.children).forEach(c => c.classList.remove('bg-mystic/20', 'border-mystic', 'text-white'));
+                        b.classList.add('bg-mystic/20', 'border-mystic', 'text-white');
+                        this.updatePreview();
+                    };
+                    parent.appendChild(b);
+                };
+                Object.keys(CLASSES).forEach(k => mkBtn(k, $('class-select'), 'class'));
+                Object.keys(RACES).forEach(k => mkBtn(k, $('race-select'), 'race'));
+            }
+
+            highlightPreselection() {
+                // Manually trigger visual active state for defaults
+                const cBtns = document.getElementById('class-select').children;
+                Array.from(cBtns).find(b => b.dataset.val === 'Warrior').classList.add('bg-mystic/20', 'border-mystic', 'text-white');
+
+                const rBtns = document.getElementById('race-select').children;
+                Array.from(rBtns).find(b => b.dataset.val === 'Human').classList.add('bg-mystic/20', 'border-mystic', 'text-white');
+
+                // Gender (already has specific class)
+                document.querySelector('.gender-btn[data-val="Male"]').classList.add('bg-mystic', 'text-white');
+
+                this.updatePreview();
+            }
+
+            updatePreview() { const s = this.state; $('stats-preview').textContent = s.class && s.race && s.gender ? `${s.gender} ${s.race} ${s.class}` : ''; if ($('char-name').value && s.class && s.race && s.gender) $('btn-start').disabled = false; }
+
+            async generateName() {
+                const btn = $('btn-gen-name');
+                const originalContent = btn.innerHTML;
+
+                // Loading State
+                btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>`;
+                lucide.createIcons();
+                this.busy = true;
+
+                const name = await API.generateName(this.state);
+                $('char-name').value = name;
+
+                // Reset State
+                btn.innerHTML = originalContent;
+                lucide.createIcons();
+                this.busy = false;
+                this.updatePreview();
+            }
+
+            async startGame() {
+                this.busy = true; const btn = $('btn-start'); btn.disabled = true;
+                let seedText = $('custom-prompt').value.trim();
+                if (!seedText) { const seeds = RPG_KEYWORDS.sort(() => 0.5 - Math.random()).slice(0, 3); seedText = `Theme: ${seeds.join(', ')}`; $('lore-seeds').textContent = seeds.join(' • '); $('btn-text').textContent = `Forging: ${seeds.join(' ')}...`; } else { $('lore-seeds').textContent = "Custom: " + seedText; $('btn-text').textContent = "Forging Destiny..."; }
+                this.state.customInstructions = seedText; $('btn-icon').classList.add('hidden');
+                this.state.name = $('char-name').value; this.state.hp = CLASSES[this.state.class].hp;
+
+                // Ensure inventory starts populated
+                this.state.inventory = [...CLASSES[this.state.class].items];
+
+                const [endgame, visualDesc] = await Promise.all([API.generateCampaign(this.state), API.generateVisuals(this.state)]);
+                this.state.endgame = endgame; this.state.characterDescription = visualDesc;
+                $('lore-world').textContent = endgame.world_backstory; $('lore-character').textContent = endgame.character_backstory;
+                $('screen-creation').classList.add('hidden'); $('screen-game').classList.remove('hidden'); $('screen-game').classList.add('flex'); $('game-over-modal').classList.add('hidden'); $('screen-game').classList.remove('blur-game');
+
+                await this.turn(`Begin Act 1: ${endgame.act1}. Introduce ${this.state.name}.`);
+                this.busy = false;
+            }
+
+            async restartGame() {
+                this.busy = true;
+                this.state.history = []; this.state.hp = CLASSES[this.state.class].hp; this.state.gold = 10; this.state.inventory = [...CLASSES[this.state.class].items]; this.state.turn = 0;
+                $('game-over-modal').classList.add('hidden'); $('screen-game').classList.remove('blur-game'); $('dm-text').innerHTML = '<p class="italic text-gray-600">The world reforms...</p>'; $('input-container').classList.remove('hidden');
+
+                // Reset Inventory UI immediately
+                this.updateInventoryUI();
+
+                await this.turn(`RESTARTING. Begin Act 1: ${this.state.endgame.act1}. Introduce ${this.state.name}.`);
+                this.busy = false;
+            }
+
+            resetToMain() {
+                location.reload();
+            }
+
+            async handleInput(txt) { if (this.busy) return; const input = txt || $('player-input').value.trim(); if (!input) return; $('player-input').value = ''; $('actions-area').innerHTML = ''; $('player-last-text').textContent = input; $('last-action-container').classList.remove('opacity-0'); await this.rollDice(); await this.turn(input); }
+            async rollDice() { const o = $('dice-overlay'), d = $('dice-3d'); o.classList.remove('opacity-0'); d.style.display = 'block'; const rx = 720 + Math.floor(Math.random() * 360), ry = 720 + Math.floor(Math.random() * 360); d.children[0].style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`; await sleep(1500); o.classList.add('opacity-0'); await sleep(300); d.style.display = 'none'; d.children[0].style.transform = 'none'; }
+
+            updateInventoryUI() {
+                const list = this.state.inventory.map(i =>
+                    `<li class="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/10 text-xs">
+                        <div class="w-1.5 h-1.5 bg-gold rounded-full shadow-[0_0_5px_rgba(251,191,36,0.5)]"></div>
+                        <span class="text-gray-300">${i}</span>
+                    </li>`
+                ).join('');
+
+                const emptyMsg = '<li class="italic text-gray-600 text-xs">Empty...</li>';
+                const content = list || emptyMsg;
+
+                $('desktop-inv').innerHTML = content;
+                $('mobile-inv').innerHTML = content;
+            }
+
+            async turn(input) {
+                this.busy = true; $('typing-indicator').classList.remove('opacity-0');
+                const img = $('scene-img'), loader = $('scene-loader'); img.style.opacity = '0.3'; img.style.filter = 'blur(4px)'; loader.classList.remove('hidden');
+                this.state.turn++; $('hud-turn').textContent = `Turn ${this.state.turn}`;
+                this.state.history.push({ role: "user", parts: [{ text: input }] });
+                const res = await API.chat(this.state.history, this.state);
+                this.state.history.push({ role: "model", parts: [{ text: JSON.stringify(res) }] });
+
+                if (res.hp_current !== undefined) this.state.hp = res.hp_current;
+                if (res.gold !== undefined) this.state.gold = res.gold;
+                if (res.inventory) this.state.inventory = res.inventory;
+
+                $('hud-hp').textContent = this.state.hp; $('hud-gp').textContent = this.state.gold;
+
+                // Explicitly update UI every turn
+                this.updateInventoryUI();
+
+                const dmContainer = $('dm-text'); dmContainer.parentElement.classList.remove('fade-in'); void dmContainer.offsetWidth; dmContainer.innerHTML = marked.parse(res.narrative); dmContainer.parentElement.classList.add('fade-in');
+                if (res.visual_prompt) API.image(res.visual_prompt).then(b64 => { if (b64) { img.src = `data:image/jpeg;base64,${b64}`; img.onload = () => { img.style.opacity = '1'; img.style.filter = 'none'; loader.classList.add('hidden'); }; } else { img.style.opacity = '1'; img.style.filter = 'none'; loader.classList.add('hidden'); } }); else { img.style.opacity = '1'; img.style.filter = 'none'; loader.classList.add('hidden'); }
+                const acts = $('actions-area'); acts.innerHTML = '';
+                if (res.game_over) {
+                    $('input-container').classList.add('hidden');
+                    const b = document.createElement('button'); b.className = 'w-full py-4 rounded-xl bg-blood border border-red-500 text-sm text-white font-bold tracking-widest shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse'; b.textContent = "ACCEPT FATE"; b.onclick = () => { $('game-over-modal').classList.remove('hidden'); $('screen-game').classList.add('blur-game'); }; acts.appendChild(b);
+                } else {
+                    $('input-container').classList.remove('hidden');
+                    (res.options || []).forEach(o => { const b = document.createElement('button'); b.className = 'w-full py-3 rounded-xl bg-black/50 border border-white/10 text-xs text-white font-bold backdrop-blur-md text-center shadow-lg active:scale-[0.98] transition-all hover:bg-white/20'; b.textContent = o; b.onclick = () => this.handleInput(o); acts.appendChild(b); });
+                }
+                this.busy = false; $('typing-indicator').classList.add('opacity-0');
+            }
+        }
+        const game = new Game(); game.init();
+        $('player-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') game.handleInput(); });
+        $('char-name').addEventListener('input', () => game.updatePreview());
+    </script>
+</body>
+
+</html>

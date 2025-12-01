@@ -1,16 +1,18 @@
 import {
   users,
-  gameStates,
+  adventures,
+  adventureTurns,
   ipRateLimits,
   type User,
   type UpsertUser,
-  type GameState,
-  type InsertGameState,
+  type Adventure,
+  type InsertAdventure,
+  type AdventureTurn,
+  type InsertAdventureTurn,
   type IpRateLimit,
-  type InsertIpRateLimit,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
 
 // Interface for storage operations
 export interface IStorage {
@@ -18,15 +20,21 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
 
-  // Game state operations
-  getGameState(id: string): Promise<GameState | undefined>;
-  getUserGameStates(userId: string): Promise<GameState[]>;
-  getActiveGameStateByIp(ipAddress: string): Promise<GameState | undefined>;
-  createGameState(gameState: InsertGameState): Promise<GameState>;
-  updateGameState(id: string, updates: Partial<GameState>): Promise<GameState | undefined>;
-  deleteGameState(id: string): Promise<void>;
+  // Adventure operations (signed-in users only)
+  getAdventure(id: string): Promise<Adventure | undefined>;
+  getUserAdventures(userId: string, limit?: number): Promise<Adventure[]>;
+  getActiveAdventure(userId: string): Promise<Adventure | undefined>;
+  createAdventure(adventure: InsertAdventure): Promise<Adventure>;
+  updateAdventure(id: string, updates: Partial<Adventure>): Promise<Adventure | undefined>;
+  deleteAdventure(id: string): Promise<void>;
 
-  // IP rate limiting operations
+  // Adventure turn operations
+  getAdventureTurns(adventureId: string, limit?: number): Promise<AdventureTurn[]>;
+  createTurn(turn: InsertAdventureTurn): Promise<AdventureTurn>;
+  getLatestTurn(adventureId: string): Promise<AdventureTurn | undefined>;
+  deleteAdventureTurns(adventureId: string): Promise<void>;
+
+  // IP rate limiting operations (for anonymous users)
   getIpRateLimit(ipAddress: string): Promise<IpRateLimit | undefined>;
   updateIpRateLimit(ipAddress: string, gamesStarted: number, resetDate: Date): Promise<IpRateLimit>;
 }
@@ -53,57 +61,112 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  // Game state operations
-  async getGameState(id: string): Promise<GameState | undefined> {
-    const [gameState] = await db
+  // Adventure operations
+  async getAdventure(id: string): Promise<Adventure | undefined> {
+    const [adventure] = await db
       .select()
-      .from(gameStates)
-      .where(eq(gameStates.id, id));
-    return gameState;
+      .from(adventures)
+      .where(eq(adventures.id, id));
+    return adventure;
   }
 
-  async getUserGameStates(userId: string): Promise<GameState[]> {
-    return await db
+  async getUserAdventures(userId: string, limit?: number): Promise<Adventure[]> {
+    let query = db
       .select()
-      .from(gameStates)
-      .where(eq(gameStates.userId, userId))
-      .orderBy(desc(gameStates.updatedAt));
+      .from(adventures)
+      .where(eq(adventures.userId, userId))
+      .orderBy(desc(adventures.lastPlayedAt));
+    
+    if (limit) {
+      query = query.limit(limit) as typeof query;
+    }
+    
+    return await query;
   }
 
-  async getActiveGameStateByIp(ipAddress: string): Promise<GameState | undefined> {
-    const [gameState] = await db
+  async getActiveAdventure(userId: string): Promise<Adventure | undefined> {
+    const [adventure] = await db
       .select()
-      .from(gameStates)
+      .from(adventures)
       .where(
         and(
-          eq(gameStates.ipAddress, ipAddress),
-          eq(gameStates.isActive, true)
+          eq(adventures.userId, userId),
+          eq(adventures.status, 'active')
         )
       )
-      .orderBy(desc(gameStates.updatedAt))
+      .orderBy(desc(adventures.lastPlayedAt))
       .limit(1);
-    return gameState;
+    return adventure;
   }
 
-  async createGameState(gameStateData: InsertGameState): Promise<GameState> {
-    const [gameState] = await db
-      .insert(gameStates)
-      .values(gameStateData)
+  async createAdventure(adventureData: InsertAdventure): Promise<Adventure> {
+    const [adventure] = await db
+      .insert(adventures)
+      .values(adventureData)
       .returning();
-    return gameState;
+    return adventure;
   }
 
-  async updateGameState(id: string, updates: Partial<GameState>): Promise<GameState | undefined> {
-    const [gameState] = await db
-      .update(gameStates)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(gameStates.id, id))
+  async updateAdventure(id: string, updates: Partial<Adventure>): Promise<Adventure | undefined> {
+    const [adventure] = await db
+      .update(adventures)
+      .set({ 
+        ...updates, 
+        updatedAt: new Date(),
+        lastPlayedAt: new Date(),
+      })
+      .where(eq(adventures.id, id))
       .returning();
-    return gameState;
+    return adventure;
   }
 
-  async deleteGameState(id: string): Promise<void> {
-    await db.delete(gameStates).where(eq(gameStates.id, id));
+  async deleteAdventure(id: string): Promise<void> {
+    // Turns are deleted automatically via CASCADE
+    await db.delete(adventures).where(eq(adventures.id, id));
+  }
+
+  // Adventure turn operations
+  async getAdventureTurns(adventureId: string, limit?: number): Promise<AdventureTurn[]> {
+    let query = db
+      .select()
+      .from(adventureTurns)
+      .where(eq(adventureTurns.adventureId, adventureId))
+      .orderBy(asc(adventureTurns.turnNumber));
+    
+    if (limit) {
+      // Get the last N turns by ordering desc, limiting, then we'll reverse
+      const turns = await db
+        .select()
+        .from(adventureTurns)
+        .where(eq(adventureTurns.adventureId, adventureId))
+        .orderBy(desc(adventureTurns.turnNumber))
+        .limit(limit);
+      return turns.reverse(); // Return in ascending order
+    }
+    
+    return await query;
+  }
+
+  async createTurn(turnData: InsertAdventureTurn): Promise<AdventureTurn> {
+    const [turn] = await db
+      .insert(adventureTurns)
+      .values(turnData)
+      .returning();
+    return turn;
+  }
+
+  async getLatestTurn(adventureId: string): Promise<AdventureTurn | undefined> {
+    const [turn] = await db
+      .select()
+      .from(adventureTurns)
+      .where(eq(adventureTurns.adventureId, adventureId))
+      .orderBy(desc(adventureTurns.turnNumber))
+      .limit(1);
+    return turn;
+  }
+
+  async deleteAdventureTurns(adventureId: string): Promise<void> {
+    await db.delete(adventureTurns).where(eq(adventureTurns.adventureId, adventureId));
   }
 
   // IP rate limiting operations

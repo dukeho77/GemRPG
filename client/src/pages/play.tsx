@@ -1,12 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreationScreen } from '@/components/game/CreationScreen';
 import { GameScreen } from '@/components/game/GameScreen';
-import { GameState } from '@/lib/game-engine';
+import { GameState, AdventureAPI } from '@/lib/game-engine';
+import { useAuth } from '@/hooks/useAuth';
+import { Loader2 } from 'lucide-react';
 
 export default function Play() {
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [isCheckingAdventure, setIsCheckingAdventure] = useState(false);
 
-  const handleGameStart = (state: GameState) => {
+  // Check for active adventure when user is authenticated
+  useEffect(() => {
+    async function checkActiveAdventure() {
+      if (!isAuthenticated || authLoading) return;
+      
+      setIsCheckingAdventure(true);
+      try {
+        const { adventure, turns } = await AdventureAPI.getActiveAdventure();
+        
+        // Only resume if adventure exists AND has valid campaign data
+        // This prevents loading incomplete/corrupted adventures
+        if (adventure && adventure.campaignData && adventure.campaignData.title) {
+          // Convert to GameState and resume
+          const state = AdventureAPI.adventureToGameState(adventure, turns);
+          
+          // Double-check the state is valid before resuming
+          if (state.endgame && state.name) {
+            setGameState(state);
+          } else {
+            console.warn('Adventure state incomplete, starting fresh');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking active adventure:', error);
+        // Silently fail - user can start new game
+      } finally {
+        setIsCheckingAdventure(false);
+      }
+    }
+
+    checkActiveAdventure();
+  }, [isAuthenticated, authLoading]);
+
+  const handleGameStart = async (state: GameState) => {
+    // If user is authenticated, create adventure on server
+    if (isAuthenticated) {
+      try {
+        const adventure = await AdventureAPI.createAdventure(state);
+        state.id = adventure.id;
+      } catch (error) {
+        console.error('Error creating adventure:', error);
+        // Continue without persistence - ephemeral session
+      }
+    }
     setGameState(state);
   };
 
@@ -14,9 +61,21 @@ export default function Play() {
     setGameState(null);
   };
 
-  if (!gameState) {
-    return <CreationScreen onGameStart={handleGameStart} />;
+  // Show loading while checking auth or active adventure
+  if (authLoading || isCheckingAdventure) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-void">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-mystic animate-spin" />
+          <p className="text-gray-400 text-sm">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
-  return <GameScreen initialState={gameState} onReset={handleReset} />;
+  if (!gameState) {
+    return <CreationScreen onGameStart={handleGameStart} isAuthenticated={isAuthenticated} />;
+  }
+
+  return <GameScreen initialState={gameState} onReset={handleReset} isAuthenticated={isAuthenticated} />;
 }

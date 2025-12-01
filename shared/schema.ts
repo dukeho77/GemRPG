@@ -43,36 +43,97 @@ export const users = pgTable("users", {
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
-// Game state table - stores individual game sessions
-export const gameStates = pgTable("game_states", {
+// Adventure status enum values
+export const adventureStatusValues = ['active', 'completed', 'abandoned'] as const;
+export type AdventureStatus = typeof adventureStatusValues[number];
+
+// Adventure ending type enum values
+export const endingTypeValues = ['victory', 'death', 'limit_reached'] as const;
+export type EndingType = typeof endingTypeValues[number];
+
+// Adventures table - stores game sessions for signed-in users only
+export const adventures = pgTable("adventures", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id),
-  ipAddress: varchar("ip_address"), // For anonymous/free players
+  userId: varchar("user_id").references(() => users.id).notNull(), // Required - signed-in users only
+  
+  // Character info
   characterName: text("character_name").notNull(),
   characterRace: text("character_race").notNull(),
   characterClass: text("character_class").notNull(),
-  characterStats: jsonb("character_stats").notNull(), // { strength, dexterity, etc. }
-  currentStory: text("current_story").notNull(),
+  characterGender: text("character_gender").notNull(),
+  characterDescription: text("character_description"), // AI-generated visual description
+  
+  // Campaign data (AI-generated)
+  campaignTitle: text("campaign_title"),
+  campaignData: jsonb("campaign_data"), // {act1, act2, act3, possible_endings, world_backstory, character_backstory}
+  themeSeeds: text("theme_seeds"), // Random keywords or custom theme
+  
+  // Current game state
+  currentHp: integer("current_hp").notNull(),
+  gold: integer("gold").notNull().default(10),
   inventory: jsonb("inventory").notNull().default([]), // Array of items
-  loreEntries: jsonb("lore_entries").notNull().default([]), // Array of discovered lore
+  
+  // Progress tracking
   turnCount: integer("turn_count").notNull().default(0),
-  maxTurns: integer("max_turns").notNull().default(5), // 5 for free, unlimited (-1) for premium
-  isActive: boolean("is_active").notNull().default(true),
+  maxTurns: integer("max_turns").notNull().default(-1), // -1 = unlimited for signed-in users
+  
+  // Adventure status
+  status: text("status").notNull().default('active'), // 'active' | 'completed' | 'abandoned'
+  endingType: text("ending_type"), // 'victory' | 'death' | 'limit_reached' | null
+  
+  // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  lastPlayedAt: timestamp("last_played_at").defaultNow(),
 }, (table) => [
-  index("idx_user_id").on(table.userId),
-  index("idx_ip_address").on(table.ipAddress),
+  index("idx_adventures_user_id").on(table.userId),
+  index("idx_adventures_status").on(table.status),
+  index("idx_adventures_last_played").on(table.lastPlayedAt),
 ]);
 
-export const insertGameStateSchema = createInsertSchema(gameStates).omit({
+export const insertAdventureSchema = createInsertSchema(adventures).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  lastPlayedAt: true,
 });
 
-export type InsertGameState = z.infer<typeof insertGameStateSchema>;
-export type GameState = typeof gameStates.$inferSelect;
+export type InsertAdventure = z.infer<typeof insertAdventureSchema>;
+export type Adventure = typeof adventures.$inferSelect;
+
+// Adventure turns table - stores each turn's data for history reconstruction
+export const adventureTurns = pgTable("adventure_turns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adventureId: varchar("adventure_id").references(() => adventures.id, { onDelete: 'cascade' }).notNull(),
+  turnNumber: integer("turn_number").notNull(),
+  
+  // Player input
+  playerAction: text("player_action").notNull(),
+  
+  // AI response
+  narrative: text("narrative").notNull(),
+  visualPrompt: text("visual_prompt"),
+  
+  // State after this turn
+  hpAfter: integer("hp_after").notNull(),
+  goldAfter: integer("gold_after").notNull(),
+  inventoryAfter: jsonb("inventory_after").notNull().default([]),
+  options: jsonb("options").notNull().default([]), // Available options after this turn
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_turns_adventure_id").on(table.adventureId),
+  index("idx_turns_number").on(table.adventureId, table.turnNumber),
+]);
+
+export const insertAdventureTurnSchema = createInsertSchema(adventureTurns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAdventureTurn = z.infer<typeof insertAdventureTurnSchema>;
+export type AdventureTurn = typeof adventureTurns.$inferSelect;
 
 // IP rate limiting table - tracks free tier usage by IP
 export const ipRateLimits = pgTable("ip_rate_limits", {

@@ -1,14 +1,23 @@
-import React, { useState } from 'react';
-import { Crown, Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Crown, Sparkles, ArrowRight, Loader2, AlertCircle, LogIn } from 'lucide-react';
 import { CLASSES, RACES, RPG_KEYWORDS, ClassName, RaceName } from '@/lib/game-constants';
 import { API, GameState } from '@/lib/game-engine';
 import { useLocation } from 'wouter';
 
-interface CreationScreenProps {
-  onGameStart: (state: GameState) => void;
+interface RateLimitStatus {
+  authenticated: boolean;
+  unlimited: boolean;
+  gamesRemaining?: number;
+  totalAllowed?: number;
+  isPremium?: boolean;
 }
 
-export function CreationScreen({ onGameStart }: CreationScreenProps) {
+interface CreationScreenProps {
+  onGameStart: (state: GameState) => void;
+  isAuthenticated?: boolean;
+}
+
+export function CreationScreen({ onGameStart, isAuthenticated = false }: CreationScreenProps) {
   const [name, setName] = useState('Adam Kingsborn');
   const [gender, setGender] = useState<'Male' | 'Female'>('Male');
   const [selectedClass, setSelectedClass] = useState<ClassName>('Warrior');
@@ -18,6 +27,18 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
   const [isStarting, setIsStarting] = useState(false);
   const [generatingSeeds, setGeneratingSeeds] = useState<string[]>([]);
   const [, setLocation] = useLocation();
+  
+  // Rate limit state
+  const [rateLimit, setRateLimit] = useState<RateLimitStatus | null>(null);
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
+
+  // Fetch rate limit status on mount
+  useEffect(() => {
+    fetch('/api/rate-limit/status', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => setRateLimit(data))
+      .catch(err => console.error('Failed to fetch rate limit:', err));
+  }, []);
 
   const handleGenerateName = async () => {
     setIsGeneratingName(true);
@@ -31,7 +52,32 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
 
   const handleStart = async () => {
     setIsStarting(true);
+    setRateLimitError(null);
+    
     try {
+      // Track game start for anonymous users (rate limiting)
+      if (!isAuthenticated) {
+        const trackRes = await fetch('/api/rate-limit/track', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        
+        if (trackRes.status === 429) {
+          const data = await trackRes.json();
+          setRateLimitError(data.message || 'Daily limit reached. Sign in for unlimited play!');
+          setIsStarting(false);
+          return;
+        }
+        
+        // Update local rate limit state
+        if (rateLimit && rateLimit.gamesRemaining !== undefined) {
+          setRateLimit({
+            ...rateLimit,
+            gamesRemaining: Math.max(0, rateLimit.gamesRemaining - 1)
+          });
+        }
+      }
+
       // Determine theme seeds - random 3 words if no custom prompt
       let seedText = customPrompt.trim();
       let themeSeeds = '';
@@ -63,7 +109,7 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
         gold: 10,
         inventory: [...CLASSES[selectedClass].items],
         turn: 0,
-        maxTurns: 5 // Free version limit
+        maxTurns: isAuthenticated ? -1 : 5 // Unlimited for signed-in, 5 for anonymous
       };
 
       // Pre-fetch campaign data (simulation)
@@ -83,12 +129,25 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
     }
   };
 
-  const canStart = name.length > 0;
+  // Check if user can start a game
+  const hasGamesRemaining = rateLimit === null || rateLimit.authenticated || rateLimit.unlimited || (rateLimit.gamesRemaining !== undefined && rateLimit.gamesRemaining > 0);
+  const canStart = name.length > 0 && hasGamesRemaining;
 
   return (
     <div className="h-screen w-full overflow-y-auto bg-[url('https://images.unsplash.com/photo-1519074069444-1ba4fff66d16?q=80&w=2574')] bg-cover bg-center relative">
       <div className="min-h-full flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/85 backdrop-blur-sm fixed"></div>
+        
+        {/* Sign In Button - Top Right */}
+        {!isAuthenticated && (
+          <button
+            onClick={() => setLocation('/login')}
+            className="fixed top-6 right-6 z-50 p-3 bg-void-light/80 backdrop-blur-md border border-gold/30 rounded-full text-gold hover:text-white hover:border-gold hover:bg-gold/20 transition-all duration-300 shadow-lg"
+            title="Sign In"
+          >
+            <LogIn className="w-5 h-5" />
+          </button>
+        )}
         
         <div className="relative w-full max-w-xl bg-void-light/95 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-white/10 shadow-2xl my-auto">
           <div className="text-center mb-6">
@@ -203,6 +262,26 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
             <div className="flex justify-center text-[10px] text-gold font-mono mb-3 h-3">
               {gender} {selectedRace} {selectedClass}
             </div>
+            
+            {/* Rate limit error */}
+            {rateLimitError && (
+              <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-xs">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{rateLimitError}</span>
+              </div>
+            )}
+            
+            {/* Games remaining indicator for anonymous users */}
+            {rateLimit && !rateLimit.authenticated && rateLimit.gamesRemaining !== undefined && (
+              <div className={`mb-3 text-center text-xs ${rateLimit.gamesRemaining > 0 ? 'text-gold' : 'text-red-400'}`}>
+                {rateLimit.gamesRemaining > 0 ? (
+                  <span>🎮 {rateLimit.gamesRemaining} free {rateLimit.gamesRemaining === 1 ? 'game' : 'games'} remaining today</span>
+                ) : (
+                  <span>Daily limit reached • <button onClick={() => setLocation('/login')} className="underline hover:text-white">Sign in for unlimited</button></span>
+                )}
+              </div>
+            )}
+            
             <button 
               onClick={handleStart} 
               disabled={!canStart || isStarting}
@@ -213,6 +292,11 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
                   <span>{generatingSeeds.length > 0 ? `Forging: ${generatingSeeds.join(' ')}...` : 'Forging Destiny...'}</span>
                   <Loader2 className="w-4 h-4 animate-spin" />
                 </>
+              ) : !hasGamesRemaining ? (
+                <>
+                  <span>Sign In to Play</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
               ) : (
                 <>
                   <span>Forge Destiny</span>
@@ -220,6 +304,18 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
                 </>
               )}
             </button>
+            
+            {/* Sign in prompt for anonymous users with remaining games */}
+            {rateLimit && !rateLimit.authenticated && rateLimit.gamesRemaining !== undefined && rateLimit.gamesRemaining > 0 && (
+              <div className="mt-3 text-center">
+                <button 
+                  onClick={() => setLocation('/login')} 
+                  className="text-xs text-gray-500 hover:text-mystic transition-colors"
+                >
+                  Sign in for unlimited games & saved progress
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

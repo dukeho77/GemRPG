@@ -55,7 +55,7 @@ Preferred communication style: Simple, everyday language.
 **AI Services**:
 - Google Gemini AI (`gemini-2.0-flash` model) for narrative generation and character name generation
 - Imagen 3.0 for dynamic image generation (prepared but not fully implemented)
-- API integration through environment variable `VITE_GEMINI_API_KEY`
+- API integration through environment variable `GEMINI_API_KEY`
 
 **Authentication**:
 - Replit OpenID Connect for user authentication
