@@ -721,7 +721,7 @@ export async function registerRoutes(
 
       logAI(role, 'start');
       
-      const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. Visual Prompt: Describe CURRENT scene. Decide First vs Third person. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. JSON Schema: { "narrative": "Story text (Markdown)", "visual_prompt": "Image prompt", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${(context.inventory || []).join(', ')}. Current HP: ${context.hp}.`;
+      const systemPrompt = `Role: Dungeon Master. Theme: ${context.customInstructions}. Character: ${context.name} (${context.gender} ${context.race} ${context.class}). Visual DNA: "${context.characterDescription}". CAMPAIGN: ${c.title}. Act 1: ${c.act1}. Act 2: ${c.act2}. Act 3: ${c.act3}. Endings: ${c.possible_endings.join(' | ')}. Instructions: 1. STRICT JSON - ALL fields are REQUIRED. 2. Narrative: 2nd Person ("You..."). 4-6 sentences. Evocative. Use the name "${context.name}" occasionally. 3. visual_prompt: ALWAYS include a detailed scene description for image generation. Never omit this field. 4. Logic: IF HP <= 0 OR Story ends -> "game_over": true. REQUIRED JSON Schema (all fields mandatory): { "narrative": "Story text (Markdown)", "visual_prompt": "Detailed scene description for image generation - NEVER omit", "hp_current": Number, "gold": Number, "inventory": [], "options": ["Option 1", "Option 2", "Option 3"], "game_over": Boolean } Context: Player Inventory: ${(context.inventory || []).join(', ')}. Current HP: ${context.hp}.`;
 
       if (!genAI) {
         throw new Error("GEMINI_API_KEY not configured");
@@ -753,6 +753,12 @@ export async function registerRoutes(
       }
       
       const response = JSON.parse(text);
+      
+      // Ensure visual_prompt is always present (fallback if AI omits it)
+      if (!response.visual_prompt) {
+        response.visual_prompt = `${context.characterDescription}, dramatic fantasy scene, dark atmosphere, cinematic`;
+      }
+      
       logAI(role, 'done', startTime);
       res.json(response);
 
