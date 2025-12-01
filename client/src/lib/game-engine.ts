@@ -34,7 +34,6 @@ export interface TurnResponse {
   inventory: string[];
   options: string[];
   game_over: boolean;
-  image_base64?: string;
 }
 
 // Configuration
@@ -44,11 +43,11 @@ const MODEL_TEXT = "gemini-2.0-flash";
 // Logging helper
 function logAI(type: string, startTime: number, success: boolean, details?: string) {
   const elapsed = Date.now() - startTime;
-  const status = success ? "✅ SUCCESS" : "❌ FAIL";
-  const color = success ? "color: #22c55e" : "color: #ef4444";
+  const status = success ? "SUCCESS" : "FAIL";
+  const color = success ? "color: #22c55e; font-weight: bold" : "color: #ef4444; font-weight: bold";
   console.log(
     `%c[AI: ${type}] ${status} (${elapsed}ms)${details ? ` - ${details}` : ""}`,
-    `font-weight: bold; ${color}`
+    color
   );
 }
 
@@ -65,7 +64,7 @@ export const API = {
     const prompt = `Generate a SINGLE creative fantasy name for a ${context.gender} ${context.race} ${context.class}. Output ONLY the name (e.g., "Thorgar"). No text like "Here is a name:".`;
     
     try {
-      const text = await callGemini(prompt, false, type);
+      const text = await callGemini(prompt, false);
       const name = text.replace(/["']/g, "").trim() || "Adventurer";
       logAI(type, startTime, true, `Generated: "${name}"`);
       return name;
@@ -101,7 +100,7 @@ export const API = {
     }`;
 
     try {
-      const text = await callGemini(prompt, true, type);
+      const text = await callGemini(prompt, true);
       let campaign = JSON.parse(text);
       
       // Handle array response (sometimes API returns [{...}] instead of {...})
@@ -134,7 +133,7 @@ export const API = {
     const prompt = `Generate a concise (max 25 words) visual description for a dark fantasy RPG character. Role: ${context.gender} ${context.race} ${context.class}. Requirements: Describe physique, hair, eyes, and clothing/armor. Output: Just the description text.`;
     
     try {
-      const result = await callGemini(prompt, false, type);
+      const result = await callGemini(prompt, false);
       logAI(type, startTime, true, `Description length: ${result.length} chars`);
       return result;
     } catch (e) {
@@ -143,6 +142,7 @@ export const API = {
     }
   },
 
+  // Main chat - returns narrative/options but NOT the image (image is separate)
   async chat(history: any[], context: GameState, userInput?: string): Promise<TurnResponse> {
     const startTime = Date.now();
     const type = "Dungeon Master";
@@ -207,24 +207,61 @@ export const API = {
       const response = JSON.parse(text) as TurnResponse;
       logAI(type, startTime, true, `Turn ${turnCount}, HP: ${response.hp_current}, Options: ${response.options?.length || 0}`);
 
-      if (response.visual_prompt) {
-        const imageBase64 = await generateImage(response.visual_prompt);
-        if (imageBase64) {
-          response.image_base64 = imageBase64;
-        }
-      }
-
       return response;
 
     } catch (e) {
       logAI(type, startTime, false, String(e));
       return mockAPI.chat(history, context);
     }
+  },
+
+  // Separate image generation - called asynchronously (non-blocking)
+  async generateImage(prompt: string): Promise<string | null> {
+    const startTime = Date.now();
+    const type = "Image Generator (Imagen 4.0)";
+    
+    if (!API_KEY) {
+      logAI(type, startTime, false, "No API key");
+      return null;
+    }
+    
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${API_KEY}`;
+      const finalPrompt = `${prompt}, cinematic lighting, 8k, masterpiece, detailed, ${Date.now()}`;
+      
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: finalPrompt }],
+          parameters: { sampleCount: 1, aspectRatio: "1:1" }
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        logAI(type, startTime, false, data.error.message || "API error");
+        return null;
+      }
+      
+      const imageData = data.predictions?.[0]?.bytesBase64Encoded;
+      if (imageData) {
+        logAI(type, startTime, true, `Image size: ${Math.round(imageData.length / 1024)}KB`);
+        return imageData;
+      } else {
+        logAI(type, startTime, false, "No image data in response");
+        return null;
+      }
+    } catch (e) {
+      logAI(type, startTime, false, String(e));
+      return null;
+    }
   }
 };
 
 // Helper for Gemini Text
-async function callGemini(prompt: string, jsonMode = false, callerType?: string): Promise<string> {
+async function callGemini(prompt: string, jsonMode = false): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_TEXT}:generateContent?key=${API_KEY}`;
   const body: any = {
     contents: [{ parts: [{ text: prompt }] }]
@@ -246,50 +283,6 @@ async function callGemini(prompt: string, jsonMode = false, callerType?: string)
   }
   
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-}
-
-// Helper for Image generation using Imagen API (matching original prototype)
-async function generateImage(prompt: string): Promise<string | undefined> {
-  const startTime = Date.now();
-  const type = "Image Generator (Imagen 4.0)";
-  
-  if (!API_KEY) {
-    logAI(type, startTime, false, "No API key");
-    return undefined;
-  }
-  
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${API_KEY}`;
-    const finalPrompt = `${prompt}, cinematic lighting, 8k, masterpiece, detailed, ${Date.now()}`;
-    
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        instances: [{ prompt: finalPrompt }],
-        parameters: { sampleCount: 1, aspectRatio: "1:1" }
-      })
-    });
-    
-    const data = await res.json();
-    
-    if (data.error) {
-      logAI(type, startTime, false, data.error.message || "API error");
-      return undefined;
-    }
-    
-    const imageData = data.predictions?.[0]?.bytesBase64Encoded;
-    if (imageData) {
-      logAI(type, startTime, true, `Image size: ${Math.round(imageData.length / 1024)}KB`);
-      return imageData;
-    } else {
-      logAI(type, startTime, false, "No image data in response");
-      return undefined;
-    }
-  } catch (e) {
-    logAI(type, startTime, false, String(e));
-    return undefined;
-  }
 }
 
 // MOCK FALLBACK

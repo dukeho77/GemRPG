@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { marked } from 'marked';
 import { Book, Hourglass, Heart, Coins, Backpack, ArrowRightCircle, Skull, RefreshCw, Home, X, RotateCcw, Loader2, Lock } from 'lucide-react';
 import { GameState, API, TurnResponse } from '@/lib/game-engine';
@@ -19,57 +19,49 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
   const [showInventory, setShowInventory] = useState(false);
   const [showLore, setShowLore] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [displayedNarrative, setDisplayedNarrative] = useState('');
-  const [fullNarrative, setFullNarrative] = useState('');
+  const [narrative, setNarrative] = useState('<p class="italic text-gray-600">The world is forming...</p>');
   const [lastAction, setLastAction] = useState('');
   const [options, setOptions] = useState<string[]>([]);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [fadeKey, setFadeKey] = useState(0); // For triggering fade animation
   const [, setLocation] = useLocation();
   
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const narrativeRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
 
-  // Initial Start
+  // Initial Start - exactly like original: Begin Act 1: ${endgame.act1}. Introduce ${name}.
   useEffect(() => {
-    if (state.turn === 0 && state.history.length === 0) {
-      handleTurn(`Begin Act 1: ${state.endgame?.act1}. Introduce ${state.name}.`);
+    if (state.turn === 0 && state.history.length === 0 && state.endgame) {
+      handleTurn(`Begin Act 1: ${state.endgame.act1}. Introduce ${state.name}.`);
     }
   }, []);
 
-  // Auto-scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [displayedNarrative, lastAction]);
-
-  // Typewriter effect
-  useEffect(() => {
-    if (displayedNarrative.length < fullNarrative.length) {
-      const timeout = setTimeout(() => {
-        setDisplayedNarrative(fullNarrative.slice(0, displayedNarrative.length + 5)); // Speed up slightly
-      }, 10);
-      return () => clearTimeout(timeout);
-    }
-  }, [displayedNarrative, fullNarrative]);
-
+  // Handle turn - like original's turn() function
   const handleTurn = async (inputText: string) => {
     if (isBusy) return;
     setIsBusy(true);
-    setLastAction(inputText !== state.history[state.history.length - 1]?.parts?.[0]?.text ? inputText : lastAction); // Only update if new user input
+    
+    // Start image loading state (blur current image)
+    setImageLoading(true);
+    if (imageRef.current) {
+      imageRef.current.style.opacity = '0.3';
+      imageRef.current.style.filter = 'blur(4px)';
+    }
 
-    // Add user input to history if it's not the system start command
+    // Add user input to history
     const newHistory = [...state.history];
     if (state.turn > 0) {
-       newHistory.push({ role: 'user', parts: [{ text: inputText }] });
+      newHistory.push({ role: 'user', parts: [{ text: inputText }] });
     }
 
     try {
-      // Pass inputText as third argument for first turn handling
+      // Get narrative response (text only, fast)
       const response = await API.chat(newHistory, state, inputText);
       
-      // Update State - IMPORTANT: Don't store image_base64 in history to avoid token overflow
+      // Update state immediately (don't store visual_prompt in history)
       const historyResponse = { ...response };
-      delete historyResponse.image_base64; // Remove image data from history
+      delete (historyResponse as any).visual_prompt;
       
       setState(prev => ({
         ...prev,
@@ -80,25 +72,56 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
         history: [...newHistory, { role: 'model', parts: [{ text: JSON.stringify(historyResponse) }] }]
       }));
 
-      setFullNarrative(response.narrative);
-      setDisplayedNarrative(''); // Reset for typewriter
-      setOptions(response.options);
-      
-      // Update image if available
-      if (response.image_base64) {
-        setCurrentImage(`data:image/png;base64,${response.image_base64}`);
-      }
+      // Update narrative with fade-in effect (like original)
+      setFadeKey(prev => prev + 1);
+      setNarrative(marked.parse(response.narrative) as string);
+      setOptions(response.options || []);
       
       if (response.game_over) {
         setGameOver(true);
       }
 
+      // Generate image ASYNC (non-blocking) - exactly like original
+      if (response.visual_prompt) {
+        API.generateImage(response.visual_prompt).then(b64 => {
+          if (b64) {
+            const newSrc = `data:image/png;base64,${b64}`;
+            setCurrentImage(newSrc);
+            // Image onload will handle clearing the blur
+          } else {
+            // No image - clear loading state
+            setImageLoading(false);
+            if (imageRef.current) {
+              imageRef.current.style.opacity = '1';
+              imageRef.current.style.filter = 'none';
+            }
+          }
+        });
+      } else {
+        // No visual prompt - clear loading state
+        setImageLoading(false);
+        if (imageRef.current) {
+          imageRef.current.style.opacity = '1';
+          imageRef.current.style.filter = 'none';
+        }
+      }
+
     } catch (e: any) {
       console.error("Turn error:", e?.message || e, e);
+      setImageLoading(false);
     } finally {
       setIsBusy(false);
     }
   };
+
+  // Handle image load - clear blur when image loads
+  const handleImageLoad = useCallback(() => {
+    setImageLoading(false);
+    if (imageRef.current) {
+      imageRef.current.style.opacity = '1';
+      imageRef.current.style.filter = 'none';
+    }
+  }, []);
 
   const handleInputSubmit = async () => {
     if (!input.trim() || isBusy) return;
@@ -107,14 +130,12 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
     setLastAction(txt);
     
     setIsRolling(true);
-    // Wait for roll animation - onRollComplete will trigger the turn
   };
 
   const handleOptionClick = (option: string) => {
     if (isBusy || gameOver) return;
     setLastAction(option);
     setIsRolling(true);
-    // Dice animation will trigger onRollComplete -> handleTurn
   };
 
   const onRollComplete = () => {
@@ -124,11 +145,7 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
     }
   };
 
-  const renderMarkdown = (text: string) => {
-    return { __html: marked.parse(text) };
-  };
-
-  const isTurnLimit = state.turn > state.maxTurns; // API increments before returning, so turn 6 > 5
+  const isTurnLimit = state.turn >= state.maxTurns;
 
   return (
     <div className="flex-1 w-full h-full flex flex-col md:flex-row overflow-hidden relative transition-all duration-700 animate-in fade-in">
@@ -138,11 +155,20 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
         
         {/* Image Wrapper */}
         <div className="relative w-full h-full overflow-hidden bg-void-light">
-          <div className={`absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${isBusy ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          {/* Loading Spinner Overlay */}
+          <div className={`absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${imageLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <div className="animate-spin text-mystic"><Loader2 className="w-8 h-8" /></div>
           </div>
           
-          <img src={currentImage || stockImage} className="w-full h-full object-cover transition-all duration-1000" alt="Scene" />
+          {/* Scene Image with blur/opacity transitions */}
+          <img 
+            ref={imageRef}
+            src={currentImage || stockImage} 
+            className="w-full h-full object-cover transition-all duration-1000" 
+            alt="Scene"
+            onLoad={handleImageLoad}
+            style={{ opacity: currentImage ? 1 : 1, filter: 'none' }}
+          />
           
           {/* Shadows */}
           <div className="absolute inset-0 shadow-card-overlay pointer-events-none z-10"></div>
@@ -193,73 +219,81 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
               ))}
             </div>
             
-            <div className="relative flex items-center mt-1">
-              <input 
-                type="text" 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
-                className="glass-input w-full rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none shadow-lg" 
-                placeholder="Or type your action..." 
-                autoComplete="off"
-              />
-              <button onClick={handleInputSubmit} className="absolute right-1.5 p-1 text-white/80 hover:text-white hover:scale-110 transition-transform">
-                <ArrowRightCircle className="w-5 h-5" />
-              </button>
-            </div>
+            {!gameOver && (
+              <div className="relative flex items-center mt-1">
+                <input 
+                  type="text" 
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleInputSubmit()}
+                  className="glass-input w-full rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none shadow-lg" 
+                  placeholder="Or type your action..." 
+                  autoComplete="off"
+                />
+                <button onClick={handleInputSubmit} className="absolute right-1.5 p-1 text-white/80 hover:text-white hover:scale-110 transition-transform">
+                  <ArrowRightCircle className="w-5 h-5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* TEXT AREA */}
       <main className="flex-1 flex flex-col min-h-0 bg-void relative">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col gap-3 no-scrollbar">
+        <div ref={narrativeRef} className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col gap-3 no-scrollbar">
           {lastAction && (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <div className="transition-opacity duration-500">
               <p className="text-[10px] uppercase tracking-widest text-mystic mb-0.5">You</p>
               <p className="text-xs text-gray-500 italic font-body border-l-2 border-mystic/30 pl-2">{lastAction}</p>
             </div>
           )}
-          <div className="flex-1 animate-in fade-in duration-700">
-             <div 
-               className="prose prose-sm prose-invert max-w-none font-story text-gray-300 text-xs leading-relaxed"
-               dangerouslySetInnerHTML={renderMarkdown(displayedNarrative)} 
-             />
+          
+          {/* Narrative with fade-in animation (like original) */}
+          <div key={fadeKey} className="flex-1 fade-in">
+            <div 
+              className="prose prose-sm prose-invert max-w-none font-story text-gray-300 text-xs leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: narrative }} 
+            />
           </div>
         </div>
         
+        {/* Dice Overlay */}
         <DiceRoller rolling={isRolling} onRollComplete={onRollComplete} />
       </main>
 
       {/* GAME OVER OVERLAY */}
       {gameOver && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in p-4">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm fade-in p-4">
           <div className="text-center p-8 w-full max-w-sm bg-void-light/90 border border-blood/30 rounded-2xl shadow-2xl shadow-blood/10">
-            {isTurnLimit ? (
-                <Lock className="w-16 h-16 text-gold mx-auto mb-4 animate-pulse" />
-            ) : (
-                <Skull className="w-16 h-16 text-blood mx-auto mb-4 animate-pulse" />
-            )}
-            
-            <h2 className="font-fantasy text-4xl text-white mb-2 tracking-widest">
-                {isTurnLimit ? "LIMIT REACHED" : "FATE SEALED"}
-            </h2>
-            <p className="text-gray-400 text-xs mb-8 italic">
-                {isTurnLimit ? "Your free trial has ended." : "Your legend ends here..."}
-            </p>
-            
+            <Skull className="w-16 h-16 text-blood mx-auto mb-4 animate-pulse" />
+            <h2 className="font-fantasy text-4xl text-white mb-2 tracking-widest">FATE SEALED</h2>
+            <p className="text-gray-400 text-xs mb-8 italic">Your legend ends here...</p>
             <div className="space-y-3">
-              {isTurnLimit ? (
-                 <button onClick={() => setLocation('/login')} className="w-full py-3.5 rounded-xl bg-gradient-to-r from-gold to-yellow-600 text-black font-bold text-sm transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2 cursor-pointer">
-                    <Lock className="w-4 h-4" /> Unlock Full Game
-                 </button>
-              ) : (
-                 <button onClick={onReset} className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blood to-red-900 text-white font-bold text-sm transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2 cursor-pointer">
-                    <RefreshCw className="w-4 h-4" /> Resurrect (Retry)
-                 </button>
-              )}
-              
-              <button onClick={() => window.location.reload()} className="w-full py-3.5 rounded-xl bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:border-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
+              <button 
+                onClick={() => {
+                  // Restart logic
+                  setState(prev => ({
+                    ...prev,
+                    history: [],
+                    hp: 30,
+                    gold: 10,
+                    inventory: [...prev.inventory],
+                    turn: 0
+                  }));
+                  setGameOver(false);
+                  setNarrative('<p class="italic text-gray-600">The world reforms...</p>');
+                  setOptions([]);
+                  setLastAction('');
+                }} 
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blood to-red-900 text-white font-bold text-sm transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" /> Resurrect (Retry)
+              </button>
+              <button 
+                onClick={onReset}
+                className="w-full py-3.5 rounded-xl bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:border-white font-bold text-sm transition-all flex items-center justify-center gap-2"
+              >
                 <Home className="w-4 h-4" /> Main Menu
               </button>
             </div>
@@ -269,59 +303,82 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
 
       {/* INVENTORY MODAL */}
       {showInventory && (
-        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl animate-in fade-in slide-in-from-bottom-10">
-          <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3 flex-none">
+        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar">
+          <div className="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
             <h2 className="font-fantasy text-xl text-gold">Inventory</h2>
             <button onClick={() => setShowInventory(false)} className="text-white"><X className="w-5 h-5" /></button>
           </div>
-          <div className="flex-1 overflow-y-auto no-scrollbar">
-            <ul className="space-y-3 text-sm text-gray-300 pb-6">
-              {state.inventory.map((item, i) => (
-                <li key={i} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/10 text-xs">
-                  <div className="w-8 h-8 bg-black/50 rounded flex items-center justify-center text-gold border border-white/5">
-                    <Backpack className="w-4 h-4" />
-                  </div>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="space-y-3 text-sm text-gray-300">
+            {state.inventory.length > 0 ? state.inventory.map((item, idx) => (
+              <li key={idx} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg border border-white/10 text-xs">
+                <div className="w-1.5 h-1.5 bg-gold rounded-full shadow-[0_0_5px_rgba(251,191,36,0.5)]"></div>
+                <span className="text-gray-300">{item}</span>
+              </li>
+            )) : (
+              <li className="italic text-gray-600 text-xs">Empty...</li>
+            )}
+          </ul>
         </div>
       )}
 
       {/* LORE MODAL */}
       {showLore && (
-        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl animate-in fade-in slide-in-from-bottom-10">
-          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-3 flex-none">
+        <div className="absolute inset-0 z-40 bg-black/95 p-6 flex flex-col backdrop-blur-xl no-scrollbar">
+          <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-3">
             <h2 className="font-fantasy text-xl text-mystic">Tales of Origin</h2>
             <button onClick={() => setShowLore(false)} className="text-white"><X className="w-5 h-5" /></button>
           </div>
-          <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-6">
+          <div className="overflow-y-auto space-y-6 max-h-[80vh] no-scrollbar">
             <div>
               <h3 className="text-xs uppercase tracking-widest text-gold mb-2 font-bold">The World</h3>
               <p className="text-sm text-gray-300 font-story leading-relaxed italic border-l-2 border-white/10 pl-3">
-                {state.endgame?.world_backstory || "Generating..."}
+                {state.endgame?.world_backstory || "A world shrouded in mystery..."}
               </p>
             </div>
             <div>
               <h3 className="text-xs uppercase tracking-widest text-mystic mb-2 font-bold">The Hero</h3>
               <p className="text-sm text-gray-300 font-story leading-relaxed italic border-l-2 border-white/10 pl-3">
-                {state.endgame?.character_backstory || "Generating..."}
+                {state.endgame?.character_backstory || "A stranger from distant lands..."}
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xs uppercase tracking-widest text-gray-500 mb-2 font-bold">Seeds of Fate</h3>
+              <p className="text-xs text-gray-400 font-mono tracking-wide">
+                {state.customInstructions || "Random destiny..."}
               </p>
             </div>
             
             <div className="pt-6 border-t border-gray-800 space-y-3">
-              <button onClick={() => { if(confirm('Restart this adventure? Progress will be lost.')) onReset(); }} className="w-full py-3 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
+              <button 
+                onClick={() => {
+                  if (confirm('Restart this adventure from the beginning?')) {
+                    setShowLore(false);
+                    setState(prev => ({
+                      ...prev,
+                      history: [],
+                      hp: 30,
+                      gold: 10,
+                      turn: 0
+                    }));
+                    setGameOver(false);
+                    setNarrative('<p class="italic text-gray-600">The world reforms...</p>');
+                    setOptions([]);
+                  }
+                }}
+                className="w-full py-3 rounded-lg bg-mystic/10 border border-mystic/30 text-mystic hover:bg-mystic/20 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2"
+              >
                 <RotateCcw className="w-4 h-4" /> Restart Chapter
               </button>
-              <button onClick={() => { if(confirm('Return to main menu? Progress will be lost.')) window.location.reload(); }} className="w-full py-3 rounded-lg bg-transparent border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer">
+              <button 
+                onClick={() => { if(confirm('Return to main menu?')) onReset(); }}
+                className="w-full py-3 rounded-lg bg-transparent border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 text-xs font-bold transition-all flex items-center justify-center gap-2"
+              >
                 <Home className="w-4 h-4" /> Main Menu
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
