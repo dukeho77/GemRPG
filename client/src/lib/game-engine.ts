@@ -6,6 +6,7 @@ export interface GameState {
   race: RaceName;
   gender: 'Male' | 'Female';
   customInstructions: string;
+  themeSeeds: string; // The random keywords or custom theme for display
   endgame: CampaignData | null;
   characterDescription: string;
   history: any[];

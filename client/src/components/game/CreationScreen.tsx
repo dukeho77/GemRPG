@@ -16,6 +16,7 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
   const [customPrompt, setCustomPrompt] = useState('');
   const [isGeneratingName, setIsGeneratingName] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [generatingSeeds, setGeneratingSeeds] = useState<string[]>([]);
   const [, setLocation] = useLocation();
 
   const handleGenerateName = async () => {
@@ -31,13 +32,30 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
   const handleStart = async () => {
     setIsStarting(true);
     try {
+      // Determine theme seeds - random 3 words if no custom prompt
+      let seedText = customPrompt.trim();
+      let themeSeeds = '';
+      
+      if (!seedText) {
+        // Pick 3 random words from RPG_KEYWORDS (like original prototype)
+        const shuffled = [...RPG_KEYWORDS].sort(() => 0.5 - Math.random());
+        const seeds = shuffled.slice(0, 3);
+        seedText = `Theme: ${seeds.join(', ')}`;
+        themeSeeds = seeds.join(' • ');
+        setGeneratingSeeds(seeds);
+      } else {
+        themeSeeds = `Custom: ${seedText}`;
+        setGeneratingSeeds([]);
+      }
+
       // Initial State
       const initialState: GameState = {
         name: name || 'Adventurer',
         class: selectedClass,
         race: selectedRace,
         gender,
-        customInstructions: customPrompt,
+        customInstructions: seedText,
+        themeSeeds: themeSeeds,
         endgame: null, // Will be populated by game engine
         characterDescription: '',
         history: [],
@@ -61,6 +79,7 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
     } catch (error) {
       console.error("Failed to start game", error);
       setIsStarting(false);
+      setGeneratingSeeds([]);
     }
   };
 
@@ -191,7 +210,7 @@ export function CreationScreen({ onGameStart }: CreationScreenProps) {
             >
               {isStarting ? (
                 <>
-                  <span>Forging Destiny...</span>
+                  <span>{generatingSeeds.length > 0 ? `Forging: ${generatingSeeds.join(' ')}...` : 'Forging Destiny...'}</span>
                   <Loader2 className="w-4 h-4 animate-spin" />
                 </>
               ) : (

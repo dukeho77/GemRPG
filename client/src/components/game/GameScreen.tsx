@@ -344,7 +344,7 @@ export function GameScreen({ initialState, onReset }: GameScreenProps) {
             <div>
               <h3 className="text-xs uppercase tracking-widest text-gray-500 mb-2 font-bold">Seeds of Fate</h3>
               <p className="text-xs text-gray-400 font-mono tracking-wide">
-                {state.customInstructions || "Random destiny..."}
+                {state.themeSeeds || "Random destiny..."}
               </p>
             </div>
             
