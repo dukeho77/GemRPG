@@ -3,16 +3,9 @@ import { useLocation } from 'wouter';
 import { marked } from 'marked';
 import { ArrowRightCircle, Skull, RefreshCw, Home, X, RotateCcw, Loader2, AlertTriangle, Crown, LogIn, LogOut } from 'lucide-react';
 import { GameState, API, AdventureAPI, EpilogueResponse } from '@/lib/game-engine';
-import { CLASSES } from '@/lib/game-constants';
 import { DiceRoller } from './DiceRoller';
 import { GameHeader } from './GameHeader';
 import stockImage from '@assets/stock_images/dark_fantasy_rpg_atm_0f6db108.jpg';
-
-interface DiceRollResult {
-  raw: number;
-  modifier: number;
-  total: number;
-}
 
 interface GameScreenProps {
   initialState: GameState;
@@ -51,7 +44,7 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
   const [imageLoading, setImageLoading] = useState(false);
   const [fadeKey, setFadeKey] = useState(0); // For triggering fade animation
   const [journeyComplete, setJourneyComplete] = useState(false); // Reached max turns but not dead
-  const [lastDiceRoll, setLastDiceRoll] = useState<DiceRollResult | null>(null); // For display
+  const [lastDiceRoll, setLastDiceRoll] = useState<number | null>(null); // For display (raw d20 value)
 
   // Confirmation Modal State
   const [confirmation, setConfirmation] = useState<ConfirmationState>({
@@ -116,14 +109,8 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
     }
   }, [state.turn, state.history.length]); // Re-run when turn or history changes (for restart)
 
-  // Get class modifier for dice rolls
-  const getClassModifier = (): number => {
-    const classData = CLASSES[state.class];
-    return classData?.modifier || 0;
-  };
-
   // Handle turn - like original's turn() function
-  const handleTurn = async (inputText: string, diceRoll?: DiceRollResult) => {
+  const handleTurn = async (inputText: string, diceRoll?: number) => {
     if (isBusy) return;
     setIsBusy(true);
 
@@ -250,17 +237,11 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
   };
 
   const onRollComplete = (rawRoll: number) => {
-    const modifier = getClassModifier();
-    const diceRoll: DiceRollResult = {
-      raw: rawRoll,
-      modifier: modifier,
-      total: rawRoll + modifier
-    };
-    setLastDiceRoll(diceRoll);
+    setLastDiceRoll(rawRoll);
     setIsRolling(false);
     
     if (lastAction) {
-      handleTurn(lastAction, diceRoll);
+      handleTurn(lastAction, rawRoll);
     }
   };
 
@@ -464,16 +445,16 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
                 <p className="text-[10px] md:text-xs uppercase tracking-widest text-mystic">You</p>
                 {lastDiceRoll && (
                   <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    lastDiceRoll.raw === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
-                    lastDiceRoll.raw === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
-                    lastDiceRoll.total >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                    lastDiceRoll.total >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                    lastDiceRoll === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
+                    lastDiceRoll === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
+                    lastDiceRoll >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                    lastDiceRoll >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
                     'bg-red-500/20 text-red-400 border border-red-500/30'
                   }`}>
                     <span>🎲</span>
-                    <span>{lastDiceRoll.raw}{lastDiceRoll.modifier > 0 ? ` + ${lastDiceRoll.modifier}` : ''} = {lastDiceRoll.total}</span>
-                    {lastDiceRoll.raw === 20 && <span className="ml-1">CRIT!</span>}
-                    {lastDiceRoll.raw === 1 && <span className="ml-1">FAIL!</span>}
+                    <span>{lastDiceRoll}</span>
+                    {lastDiceRoll === 20 && <span className="ml-1">CRIT!</span>}
+                    {lastDiceRoll === 1 && <span className="ml-1">FAIL!</span>}
                   </div>
                 )}
               </div>
@@ -491,7 +472,7 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
         </div>
 
         {/* Dice Overlay */}
-        <DiceRoller rolling={isRolling} modifier={getClassModifier()} onRollComplete={onRollComplete} />
+        <DiceRoller rolling={isRolling} onRollComplete={onRollComplete} />
       </main>
 
       {/* GAME OVER / VICTORY OVERLAY */}

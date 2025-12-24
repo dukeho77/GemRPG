@@ -2,33 +2,28 @@ import React, { useEffect, useState } from 'react';
 
 interface DiceRollerProps {
   rolling: boolean;
-  rollResult?: number | null;
-  modifier?: number;
   onRollComplete?: (result: number) => void;
 }
 
-export function DiceRoller({ rolling, rollResult, modifier = 0, onRollComplete }: DiceRollerProps) {
+export function DiceRoller({ rolling, onRollComplete }: DiceRollerProps) {
   const [visible, setVisible] = useState(false);
-  const [rotation, setRotation] = useState({ x: 0, y: 0 });
   const [displayResult, setDisplayResult] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
+  const [isSpinning, setIsSpinning] = useState(false);
 
   useEffect(() => {
     if (rolling) {
       setVisible(true);
       setShowResult(false);
       setDisplayResult(null);
+      setIsSpinning(true);
       
-      // Random rotation
-      const rx = 720 + Math.floor(Math.random() * 360);
-      const ry = 720 + Math.floor(Math.random() * 360);
-      setRotation({ x: rx, y: ry });
-
-      // Generate roll result
+      // Generate roll result immediately
       const result = Math.floor(Math.random() * 20) + 1;
       
-      // Show result after dice settles
+      // Show result after dice settles (stop spinning, show final number)
       const resultTimer = setTimeout(() => {
+        setIsSpinning(false);
         setDisplayResult(result);
         setShowResult(true);
       }, 1200);
@@ -36,8 +31,8 @@ export function DiceRoller({ rolling, rollResult, modifier = 0, onRollComplete }
       // Complete and hide
       const hideTimer = setTimeout(() => {
         setVisible(false);
-        setRotation({ x: 0, y: 0 });
         setShowResult(false);
+        setDisplayResult(null);
         if (onRollComplete) onRollComplete(result);
       }, 2500);
 
@@ -52,46 +47,37 @@ export function DiceRoller({ rolling, rollResult, modifier = 0, onRollComplete }
 
   const isCriticalSuccess = displayResult === 20;
   const isCriticalFail = displayResult === 1;
-  const total = displayResult ? displayResult + modifier : null;
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-4">
-        {/* Dice */}
+        {/* Dice - shows spinning animation then settles on result */}
         <div className={`dice-wrap ${isCriticalSuccess ? 'animate-pulse' : ''}`} style={{ display: 'block' }}>
           <div 
-            className={`dice-cube ${isCriticalSuccess ? 'shadow-[0_0_30px_rgba(251,191,36,0.8)]' : ''} ${isCriticalFail ? 'shadow-[0_0_30px_rgba(239,68,68,0.8)]' : ''}`}
-            style={{ transform: visible ? `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` : 'none' }}
+            className={`dice-cube ${isSpinning ? 'dice-spinning' : ''} ${isCriticalSuccess ? 'shadow-[0_0_30px_rgba(251,191,36,0.8)]' : ''} ${isCriticalFail ? 'shadow-[0_0_30px_rgba(239,68,68,0.8)]' : ''}`}
           >
-            <div className="face f-front">20</div>
-            <div className="face f-back">1</div>
-            <div className="face f-right">8</div>
-            <div className="face f-left">12</div>
-            <div className="face f-top">19</div>
-            <div className="face f-bottom">3</div>
+            {/* When spinning, show random faces. When settled, show result on front face */}
+            <div className={`face f-front ${showResult ? 'text-3xl' : ''} ${isCriticalSuccess ? 'text-gold' : isCriticalFail ? 'text-blood' : ''}`}>
+              {showResult && displayResult ? displayResult : 20}
+            </div>
+            <div className="face f-back">{showResult && displayResult ? displayResult : 1}</div>
+            <div className="face f-right">{showResult && displayResult ? displayResult : 8}</div>
+            <div className="face f-left">{showResult && displayResult ? displayResult : 12}</div>
+            <div className="face f-top">{showResult && displayResult ? displayResult : 19}</div>
+            <div className="face f-bottom">{showResult && displayResult ? displayResult : 3}</div>
           </div>
         </div>
 
-        {/* Result Display */}
+        {/* Result Text Display */}
         {showResult && displayResult && (
           <div className={`fade-in text-center ${isCriticalSuccess ? 'animate-bounce' : ''}`}>
-            <div className={`text-4xl font-fantasy font-bold ${
-              isCriticalSuccess ? 'text-gold' : 
-              isCriticalFail ? 'text-blood' : 
-              'text-white'
-            }`}>
-              {displayResult}
-              {modifier > 0 && (
-                <span className="text-2xl text-mystic"> + {modifier} = {total}</span>
-              )}
-            </div>
             {isCriticalSuccess && (
-              <div className="text-gold text-sm font-bold uppercase tracking-widest mt-1 animate-pulse">
+              <div className="text-gold text-lg font-bold uppercase tracking-widest animate-pulse">
                 Critical Success!
               </div>
             )}
             {isCriticalFail && (
-              <div className="text-blood text-sm font-bold uppercase tracking-widest mt-1">
+              <div className="text-blood text-lg font-bold uppercase tracking-widest">
                 Critical Fail!
               </div>
             )}

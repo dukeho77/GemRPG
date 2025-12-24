@@ -118,12 +118,21 @@
 }
 
 /* Dice Animation Classes */
-.dice-wrap { perspective: 800px; width: 50px; height: 50px; pointer-events: none; }
-.dice-cube { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 1s; }
-.face { position: absolute; width: 50px; height: 50px; background: #4c1d95; border: 1px solid #fbbf24; color: #fbbf24; font-family: 'Cinzel', serif; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; box-shadow: 0 0 10px rgba(139, 92, 246, 0.6); opacity: 0.95; }
-.f-front { transform: rotateY(0deg) translateZ(25px); } 
-.f-back { transform: rotateY(180deg) translateZ(25px); } 
-.f-right { transform: rotateY(90deg) translateZ(25px); } 
-.f-left { transform: rotateY(-90deg) translateZ(25px); } 
-.f-top { transform: rotateX(90deg) translateZ(25px); } 
-.f-bottom { transform: rotateX(-90deg) translateZ(25px); }
+.dice-wrap { perspective: 800px; width: 60px; height: 60px; pointer-events: none; }
+.dice-cube { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.3s ease-out; }
+.dice-cube.dice-spinning { animation: dice-spin 1.2s ease-out forwards; }
+.face { position: absolute; width: 60px; height: 60px; background: #4c1d95; border: 2px solid #fbbf24; color: #fbbf24; font-family: 'Cinzel', serif; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; box-shadow: 0 0 10px rgba(139, 92, 246, 0.6); opacity: 0.95; border-radius: 8px; }
+.f-front { transform: rotateY(0deg) translateZ(30px); } 
+.f-back { transform: rotateY(180deg) translateZ(30px); } 
+.f-right { transform: rotateY(90deg) translateZ(30px); } 
+.f-left { transform: rotateY(-90deg) translateZ(30px); } 
+.f-top { transform: rotateX(90deg) translateZ(30px); } 
+.f-bottom { transform: rotateX(-90deg) translateZ(30px); }
+
+@keyframes dice-spin {
+  0% { transform: rotateX(0deg) rotateY(0deg); }
+  25% { transform: rotateX(360deg) rotateY(180deg); }
+  50% { transform: rotateX(720deg) rotateY(360deg); }
+  75% { transform: rotateX(900deg) rotateY(540deg); }
+  100% { transform: rotateX(0deg) rotateY(0deg); }
+}

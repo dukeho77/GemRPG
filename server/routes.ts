@@ -1069,7 +1069,9 @@ The player rolls a D20 before each action. Use the roll result to determine succ
 - Risky or uncertain actions
 - **IGNORE the roll for:** Simple conversation, looking around, safe actions with no risk
 
-${diceRoll ? `**THIS TURN'S ROLL:** ${diceRoll.raw} (raw) + ${diceRoll.modifier} (${context.class} class bonus) = ${diceRoll.total} total` : '(No dice roll this turn - intro or conversation)'}`;
+${diceRoll ? `**THIS TURN'S ROLL:** ${diceRoll}
+- Consider the player's ${context.class} class when determining if they have advantage on this action type
+- A ${context.class} would naturally excel at actions matching their specialty` : '(No dice roll this turn - intro or conversation)'}`;
 
       if (!genAI) {
         throw new Error("GEMINI_API_KEY not configured");
