@@ -785,7 +785,7 @@ Generate a precise, vivid visual description (60-80 words) optimized for consist
     const role = "Dungeon Master";
     
     try {
-      const { history, context, userInput } = req.body;
+      const { history, context, userInput, diceRoll } = req.body;
       
       if (!GEMINI_API_KEY) {
         const turnCount = (context?.turn || 0) + 1;
@@ -1053,7 +1053,23 @@ FORMATTING:
 - Balance: Mix combat, exploration, roleplay, and puzzle-solving
 - Stakes: Every choice should matter, even if subtly
 - **VARY VISUAL PERSPECTIVES:** Don't use the same camera angle repeatedly. Match perspective to narrative drama and scene type
-- **NEVER USE CHARACTER NAME IN VISUAL PROMPTS:** Always use physical features from "${context.characterDescription}" instead`;
+- **NEVER USE CHARACTER NAME IN VISUAL PROMPTS:** Always use physical features from "${context.characterDescription}" instead
+
+**DICE ROLL SYSTEM:**
+The player rolls a D20 before each action. Use the roll result to determine success/failure for risky actions:
+- **Natural 20 (Critical Success):** Exceptional outcome! Describe an impressive, dramatic success with bonus effects
+- **15-19 (Success):** Action succeeds cleanly
+- **8-14 (Partial Success):** Action succeeds but with a complication, cost, or reduced effect
+- **2-7 (Failure):** Action fails, describe setback or complication
+- **Natural 1 (Critical Failure):** Dramatic mishap! Something goes wrong in an interesting way
+
+**WHEN TO USE THE ROLL:**
+- Combat attacks, blocks, and maneuvers
+- Skill checks (stealth, lockpicking, persuasion, athletics)
+- Risky or uncertain actions
+- **IGNORE the roll for:** Simple conversation, looking around, safe actions with no risk
+
+${diceRoll ? `**THIS TURN'S ROLL:** ${diceRoll.raw} (raw) + ${diceRoll.modifier} (${context.class} class bonus) = ${diceRoll.total} total` : '(No dice roll this turn - intro or conversation)'}`;
 
       if (!genAI) {
         throw new Error("GEMINI_API_KEY not configured");

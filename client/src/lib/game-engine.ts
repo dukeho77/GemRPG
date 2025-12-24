@@ -163,13 +163,13 @@ export const API = {
   },
 
   // Main chat - returns narrative/options via server
-  async chat(history: HistoryEntry[], context: GameState, userInput?: string): Promise<TurnResponse> {
+  async chat(history: HistoryEntry[], context: GameState, userInput?: string, diceRoll?: { raw: number; modifier: number; total: number }): Promise<TurnResponse> {
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ history, context, userInput })
+        body: JSON.stringify({ history, context, userInput, diceRoll })
       });
       
       if (res.status === 429) {
