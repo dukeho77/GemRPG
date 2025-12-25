@@ -5,6 +5,7 @@ import { ArrowRightCircle, Skull, RefreshCw, Home, X, RotateCcw, Loader2, AlertT
 import { GameState, API, AdventureAPI, EpilogueResponse } from '@/lib/game-engine';
 import { DiceRoller } from './DiceRoller';
 import { GameHeader } from './GameHeader';
+import { CLASSES, RACES, SKILL_CATEGORIES } from '@/lib/game-constants';
 import stockImage from '@assets/stock_images/dark_fantasy_rpg_atm_0f6db108.jpg';
 
 interface GameScreenProps {
@@ -580,6 +581,35 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
               <div>
                 <h3 className="text-[10px] md:text-xs uppercase tracking-widest text-gray-500 mb-1 font-bold">Race</h3>
                 <p className="text-sm md:text-lg text-mystic">{state.race}</p>
+              </div>
+            </div>
+            
+            {/* Class & Race Bonuses */}
+            <div>
+              <h3 className="text-xs md:text-sm uppercase tracking-widest text-mystic mb-3 font-bold">Bonuses</h3>
+              <div className="space-y-3">
+                {/* Class Bonus */}
+                {CLASSES[state.class as keyof typeof CLASSES] && (
+                  <div className="bg-mystic/10 border border-mystic/30 rounded-lg p-3">
+                    <p className="text-xs text-mystic font-bold mb-1">
+                      {state.class} +{CLASSES[state.class as keyof typeof CLASSES].modifier}
+                    </p>
+                    <p className="text-[10px] md:text-xs text-gray-400">
+                      {SKILL_CATEGORIES[CLASSES[state.class as keyof typeof CLASSES].modifierType].join(', ')}
+                    </p>
+                  </div>
+                )}
+                {/* Race Bonus */}
+                {RACES[state.race as keyof typeof RACES] && (
+                  <div className="bg-gold/10 border border-gold/30 rounded-lg p-3">
+                    <p className="text-xs text-gold font-bold mb-1">
+                      {state.race} - {RACES[state.race as keyof typeof RACES].trait}
+                    </p>
+                    <p className="text-[10px] md:text-xs text-gray-400">
+                      {RACES[state.race as keyof typeof RACES].bonus}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
             
