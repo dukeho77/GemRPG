@@ -440,39 +440,31 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
       {/* TEXT AREA */}
       <main className="flex-1 flex flex-col min-h-0 bg-void relative">
         <div ref={narrativeRef} className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col gap-3 no-scrollbar">
-          {/* Player Action */}
+          {/* Player Action - single row */}
           {lastAction && (
-            <div className="transition-opacity duration-500">
-              <p className="text-[10px] md:text-xs uppercase tracking-widest text-mystic mb-0.5">You</p>
-              <p className="text-xs md:text-base text-gray-500 italic font-body border-l-2 border-mystic/30 pl-2">{lastAction}</p>
-            </div>
+            <p className="text-xs md:text-base text-gray-500 italic font-body transition-opacity duration-500">
+              <span className="text-mystic font-bold not-italic">You:</span> {lastAction}
+            </p>
           )}
 
-          {/* Dice Roll Result - separate row */}
-          {lastDiceRoll && lastAction && (
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs md:text-sm font-bold ${
-              lastDiceRoll === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
-              lastDiceRoll === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
-              lastDiceRoll >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-              lastDiceRoll >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-              'bg-red-500/20 text-red-400 border border-red-500/30'
-            }`}>
-              <span className="text-lg">🎲</span>
-              <span>Rolled {lastDiceRoll}</span>
-              {lastDiceRoll === 20 && <span className="ml-1 animate-pulse">— CRITICAL SUCCESS!</span>}
-              {lastDiceRoll === 1 && <span className="ml-1">— CRITICAL FAIL!</span>}
-              {lastDiceRoll >= 15 && lastDiceRoll < 20 && <span className="ml-1 opacity-70">— Success</span>}
-              {lastDiceRoll >= 8 && lastDiceRoll < 15 && <span className="ml-1 opacity-70">— Partial</span>}
-              {lastDiceRoll >= 2 && lastDiceRoll < 8 && <span className="ml-1 opacity-70">— Failed</span>}
-            </div>
-          )}
-
-          {/* DM Narrative */}
+          {/* DM Narrative with inline dice roll */}
           <div key={fadeKey} className="fade-in">
-            <div
-              className="prose prose-sm md:prose-base prose-invert max-w-none font-story text-gray-300 text-xs md:text-base leading-relaxed md:leading-loose"
-              dangerouslySetInnerHTML={{ __html: narrative }}
-            />
+            <div className="prose prose-sm md:prose-base prose-invert max-w-none font-story text-gray-300 text-xs md:text-base leading-relaxed md:leading-loose">
+              {/* Inline dice roll at start of narrative */}
+              {lastDiceRoll && lastAction && (
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] md:text-xs font-bold mr-2 align-middle ${
+                  lastDiceRoll === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
+                  lastDiceRoll === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
+                  lastDiceRoll >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                  lastDiceRoll >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                  'bg-red-500/20 text-red-400 border border-red-500/30'
+                }`}>
+                  <span>🎲</span>
+                  <span>{lastDiceRoll}</span>
+                </span>
+              )}
+              <span dangerouslySetInnerHTML={{ __html: narrative }} />
+            </div>
           </div>
         </div>
 
