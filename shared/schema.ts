@@ -112,6 +112,7 @@ export const adventureTurns = pgTable("adventure_turns", {
   
   // Player input
   playerAction: text("player_action").notNull(),
+  diceRoll: integer("dice_roll"),  // D20 roll for this turn (null for intro/no-roll turns)
   
   // AI response
   narrative: text("narrative").notNull(),

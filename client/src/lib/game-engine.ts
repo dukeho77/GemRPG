@@ -26,6 +26,7 @@ export interface GameState {
 export interface HistoryEntry {
   role: 'user' | 'model';
   parts: { text: string }[];
+  diceRoll?: number | null;  // D20 roll for this turn (user entries only)
 }
 
 export interface CampaignData {
