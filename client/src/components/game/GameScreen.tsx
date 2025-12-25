@@ -77,6 +77,9 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
       if (initialState.lastAction) {
         setLastAction(initialState.lastAction);
       }
+      if (initialState.lastDiceRoll !== undefined && initialState.lastDiceRoll !== null) {
+        setLastDiceRoll(initialState.lastDiceRoll);
+      }
       return; // Don't trigger new turn when resuming
     }
     
@@ -96,6 +99,10 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
           const lastUserEntry = [...state.history].reverse().find(h => h.role === 'user');
           if (lastUserEntry) {
             setLastAction(lastUserEntry.parts[0].text);
+            // Restore dice roll from history if available
+            if (lastUserEntry.diceRoll !== undefined && lastUserEntry.diceRoll !== null) {
+              setLastDiceRoll(lastUserEntry.diceRoll);
+            }
           }
         } catch (e) {
           console.error('Error parsing saved turn data:', e);
@@ -118,10 +125,10 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
     // Start image loading state (blur current image via state)
     setImageLoading(true);
 
-    // Add user input to history
+    // Add user input to history (include dice roll for persistence)
     const newHistory = [...state.history];
     if (state.turn > 0) {
-      newHistory.push({ role: 'user', parts: [{ text: inputText }] });
+      newHistory.push({ role: 'user', parts: [{ text: inputText }], diceRoll: diceRoll ?? null });
     }
 
     try {
@@ -158,7 +165,7 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
 
       // Save turn to server ASYNC (fire-and-forget, don't block UI)
       if (isAuthenticated && state.id) {
-        // Save turn in background
+        // Save turn in background (include dice roll for persistence)
         AdventureAPI.saveTurn(state.id, {
           playerAction: inputText,
           narrative: response.narrative,
@@ -167,6 +174,7 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
           goldAfter: response.gold,
           inventoryAfter: response.inventory,
           options: response.options || [],
+          diceRoll: diceRoll ?? null,
         }).catch(err => console.error('Failed to save turn:', err));
 
         // Update status if game over (also fire-and-forget)

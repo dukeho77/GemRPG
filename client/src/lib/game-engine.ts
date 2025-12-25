@@ -21,6 +21,7 @@ export interface GameState {
   lastOptions?: string[];
   lastAction?: string;
   lastImage?: string; // Last scene image (base64) for resume
+  lastDiceRoll?: number | null; // Last dice roll for resume display
 }
 
 export interface HistoryEntry {
@@ -87,6 +88,7 @@ export interface AdventureTurn {
   adventureId: string;
   turnNumber: number;
   playerAction: string;
+  diceRoll: number | null;
   narrative: string;
   visualPrompt: string | null;
   hpAfter: number;
@@ -389,13 +391,14 @@ export const AdventureAPI = {
 
   // Convert Adventure + Turns to GameState
   adventureToGameState(adventure: Adventure, turns: AdventureTurn[]): GameState {
-    // Reconstruct history from turns
+    // Reconstruct history from turns (including persisted dice rolls)
     const history: HistoryEntry[] = [];
     for (const turn of turns) {
-      // User message
+      // User message with dice roll
       history.push({
         role: 'user',
         parts: [{ text: turn.playerAction }],
+        diceRoll: turn.diceRoll ?? null,
       });
       // Model response (simplified, without visual_prompt)
       history.push({
@@ -436,6 +439,7 @@ export const AdventureAPI = {
       lastNarrative: lastTurn?.narrative,
       lastOptions: lastTurn?.options as string[] | undefined,
       lastAction: lastTurn?.playerAction,
+      lastDiceRoll: lastTurn?.diceRoll ?? null,
       // Use image URL endpoint instead of base64 (more efficient, cacheable)
       lastImage: `/api/adventures/${adventure.id}/image`,
     };
