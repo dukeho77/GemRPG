@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
 import { insertAdventureSchema, insertAdventureTurnSchema } from "@shared/schema";
+import { getCharacterBonuses } from "@shared/game-bonuses";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { GoogleGenAI } from "@google/genai";
@@ -1069,9 +1070,11 @@ The player rolls a D20 before each action. Use the roll result to determine succ
 - Risky or uncertain actions
 - **IGNORE the roll for:** Simple conversation, looking around, safe actions with no risk
 
+${getCharacterBonuses(context.class, context.race)}
+
 ${diceRoll ? `**THIS TURN'S ROLL:** ${diceRoll}
-- Consider the player's ${context.class} class when determining if they have advantage on this action type
-- A ${context.class} would naturally excel at actions matching their specialty` : '(No dice roll this turn - intro or conversation)'}`;
+Add the relevant bonus to this roll when the action matches the skill categories listed above.
+For example: A Rogue rolling 12 for lockpicking gets 12 + 3 = 15 (Success)` : '(No dice roll this turn - intro or conversation)'}`;
 
       if (!genAI) {
         throw new Error("GEMINI_API_KEY not configured");
