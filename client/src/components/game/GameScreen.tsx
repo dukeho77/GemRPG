@@ -457,22 +457,20 @@ export function GameScreen({ initialState, onReset, isAuthenticated = false }: G
 
           {/* DM Narrative with inline dice roll */}
           <div key={fadeKey} className="fade-in">
-            <div className="prose prose-sm md:prose-base prose-invert max-w-none font-story text-gray-300 text-xs md:text-base leading-relaxed md:leading-loose">
-              {/* Inline dice roll at start of narrative */}
-              {lastDiceRoll && lastAction && (
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] md:text-xs font-bold mr-2 align-middle ${
-                  lastDiceRoll === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
-                  lastDiceRoll === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
-                  lastDiceRoll >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                  lastDiceRoll >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-                  'bg-red-500/20 text-red-400 border border-red-500/30'
-                }`}>
-                  <span>🎲</span>
-                  <span>{lastDiceRoll}</span>
-                </span>
-              )}
-              <span dangerouslySetInnerHTML={{ __html: narrative }} />
-            </div>
+            <div
+              className="prose prose-sm md:prose-base prose-invert max-w-none font-story text-gray-300 text-xs md:text-base leading-relaxed md:leading-loose"
+              dangerouslySetInnerHTML={{
+                __html: (lastDiceRoll && lastAction)
+                  ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] md:text-xs font-bold mr-2 align-middle ${
+                      lastDiceRoll === 20 ? 'bg-gold/20 text-gold border border-gold/30' :
+                      lastDiceRoll === 1 ? 'bg-blood/20 text-blood border border-blood/30' :
+                      lastDiceRoll >= 15 ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                      lastDiceRoll >= 8 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                      'bg-red-500/20 text-red-400 border border-red-500/30'
+                    }"><span>🎲</span><span>${lastDiceRoll}</span></span>${narrative.replace(/^<p>/, '<p style="display:inline;">')}`
+                  : narrative
+              }}
+            />
           </div>
         </div>
 
