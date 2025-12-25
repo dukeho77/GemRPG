@@ -321,6 +321,7 @@ export const AdventureAPI = {
     goldAfter: number;
     inventoryAfter: string[];
     options: string[];
+    diceRoll?: number | null;
   }): Promise<{ turn: AdventureTurn; turnNumber: number }> {
     const res = await fetch(`/api/adventures/${adventureId}/turn`, {
       method: 'POST',

@@ -27,6 +27,7 @@ const createTurnSchema = z.object({
   goldAfter: z.number(),
   inventoryAfter: z.array(z.string()),
   options: z.array(z.string()),
+  diceRoll: z.number().optional().nullable(),
 });
 
 // Schema for AI campaign generation response (structured output)
@@ -430,6 +431,7 @@ export async function registerRoutes(
         goldAfter: turnData.goldAfter,
         inventoryAfter: turnData.inventoryAfter,
         options: turnData.options,
+        diceRoll: turnData.diceRoll ?? null,
       });
 
       // Update adventure state
